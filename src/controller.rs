@@ -92,6 +92,7 @@ impl RazerReport {
     }
 }
 
+#[derive(Debug)]
 pub struct DeviceController {
     pub handle: HidDevice,
     pub name: String,
@@ -104,9 +105,7 @@ impl DeviceController {
     pub fn new(name: String, pid: u16, path: String) -> Result<Self, Box<dyn std::error::Error>> {
         let api = HidApi::new()?;
 
-        // Convert the path String to a CString
         let c_path = CString::new(path)?;
-
         let handle = api.open_path(c_path.as_ref())?;
 
         let transaction_id = RAZER_DEVICE_LIST
@@ -127,7 +126,6 @@ impl DeviceController {
         let request = self.create_command(0x07, 0x80, 0x02);
         let response = self.send_payload(request)?;
         let battery_level = (response.arguments[1] as f32 / 255.0) * 100.0;
-        // println!("{}\t battery level: {:.2}%", self.name, battery_level);
         Ok(battery_level.round() as i32)
     }
 
@@ -135,7 +133,6 @@ impl DeviceController {
         let request = self.create_command(0x07, 0x84, 0x02);
         let response = self.send_payload(request)?;
         let charging_status = response.arguments[1] != 0;
-        // println!("{}\t charging status: {}", self.name, charging_status);
         Ok(charging_status)
     }
 

@@ -7,6 +7,7 @@ use std::vec::Vec;
 use crate::controller::DeviceController;
 use crate::devices::RAZER_DEVICE_LIST;
 
+#[derive(Debug)]
 pub struct DeviceManager {
     pub device_controllers: Arc<Mutex<Vec<DeviceController>>>,
 }

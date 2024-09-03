@@ -1,6 +1,6 @@
 [package]
 name = "razer-battery-report"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["xzeldon <contact@zeldon.ru>"]
 edition = "2021"
 description = "Razer Battery Level Tray Indicator"
@@ -18,3 +18,10 @@ hidapi = "2.6.3"
 # Logging
 log = "0.4.22"
 pretty_env_logger = "0.5.0"
+
+# Event Loop and Tray Icon
+tao = "0.30.0"
+tray-icon = "0.17.0"
+
+# Image manipulation
+image = "0.25.2"
