@@ -26,8 +26,8 @@ To build, you must have [Rust](https://www.rust-lang.org/) and
 
 1. Clone this repository: `git clone https://github.com/xzeldon/razer-battery-report.git`
 2. Navigate into your local repository: `cd razer-battery-report`
-3. Build: `cargo build razer-battery-report --release`
-4. Executable will be located at `target/release/razer-battery-report`
+3. Build: `cargo build --release`
+4. Executable will be located at `target/release/razer-battery-report.exe`
 
 ## Adding new devices yourself
 * add device with `name`, `pid`, `interface`, `usage_page`, `usage` to [devices.rs](/src/devices.rs)
