@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::manager::DeviceManager;
@@ -18,8 +18,8 @@ use winapi::um::{
     winuser::{self, ShowWindow},
 };
 
-const BATTERY_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
-const DEVICE_FETCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+const BATTERY_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
+const DEVICE_FETCH_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
 pub struct MemoryDevice {
@@ -194,7 +194,7 @@ impl TrayApp {
 
         let menu_channel = MenuEvent::receiver();
 
-        let mut last_update = std::time::Instant::now();
+        let mut last_update = Instant::now();
         let update_interval = Duration::from_millis(100);
 
         event_loop.run(move |event, _, control_flow| {
@@ -237,7 +237,7 @@ impl TrayApp {
                             }
                         }
 
-                        last_update = std::time::Instant::now();
+                        last_update = Instant::now();
                     }
                 }
                 _ => (),
