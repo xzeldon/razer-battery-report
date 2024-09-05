@@ -27,7 +27,6 @@ fn main() {
         // Hide the console window
         winuser::ShowWindow(wincon::GetConsoleWindow(), winuser::SW_HIDE);
     }
-    
 
     std::env::set_var("RUST_LOG", "trace");
     pretty_env_logger::init();
