@@ -85,7 +85,6 @@ impl DeviceManager {
         let mut added_devices = HashSet::new();
 
         for device in RAZER_DEVICE_LIST.iter() {
-            // Create a new HidApi instance
             let api = match HidApi::new() {
                 Ok(api) => api,
                 Err(err) => {
@@ -94,7 +93,6 @@ impl DeviceManager {
                 }
             };
 
-            // Iterate over the device list to find matching devices
             for hid_device in api.device_list() {
                 if hid_device.vendor_id() == device.vid
                     && hid_device.product_id() == device.pid
@@ -110,7 +108,6 @@ impl DeviceManager {
 
                     // Only add the device if it hasn't been added yet
                     if !added_devices.contains(&device.pid) {
-                        // Create a new DeviceController
                         match DeviceController::new(
                             device.name.to_owned(),
                             device.pid,

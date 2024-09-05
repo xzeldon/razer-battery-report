@@ -6,12 +6,13 @@ use std::{
 };
 
 use crate::manager::DeviceManager;
-use log::{error, info};
+use log::{error, info, trace};
 use tao::event_loop::EventLoopBuilder;
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem},
     TrayIcon, TrayIconBuilder,
 };
+use winapi::um::{wincon::GetConsoleWindow, winuser::{self, ShowWindow, SW_SHOW}};
 
 const BATTERY_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 const DEVICE_FETCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
@@ -42,6 +43,8 @@ pub struct TrayApp {
     device_manager: Arc<Mutex<DeviceManager>>,
     devices: Arc<Mutex<HashMap<u32, MemoryDevice>>>,
     tray_icon: Rc<Mutex<Option<TrayIcon>>>,
+    console_state: Arc<Mutex<bool>>,
+    menu_items: Arc<Mutex<Vec<MenuItem>>>
 }
 
 impl TrayApp {
@@ -50,13 +53,15 @@ impl TrayApp {
             device_manager: Arc::new(Mutex::new(DeviceManager::new())),
             devices: Arc::new(Mutex::new(HashMap::new())),
             tray_icon: Rc::new(Mutex::new(None)),
+            console_state: Arc::new(Mutex::new(false)),
+            menu_items: Arc::new(Mutex::new(Vec::new()))
         }
     }
 
     pub fn run(&self) {
         let icon = Self::create_icon();
         let event_loop = EventLoopBuilder::new().build();
-        let tray_menu = Self::create_menu();
+        let tray_menu = self.create_menu();
 
         let (sender, receiver) = mpsc::channel();
 
@@ -77,10 +82,17 @@ impl TrayApp {
         tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create icon")
     }
 
-    fn create_menu() -> Menu {
+    fn create_menu(&self) -> Menu {
         let tray_menu = Menu::new();
+
+        let show_console_item = MenuItem::new("Show Log Window", true, None);
         let quit_item = MenuItem::new("Exit", true, None);
-        tray_menu.append_items(&[&quit_item]).unwrap();
+
+        let mut menu_items = self.menu_items.lock().unwrap();
+        menu_items.push(show_console_item);
+        menu_items.push(quit_item);
+
+        tray_menu.append_items(&[&menu_items[0], &menu_items[1]]).unwrap();
         tray_menu
     }
 
@@ -113,7 +125,7 @@ impl TrayApp {
                     }
                 }
             }
-
+            
             if !connected_devices.is_empty() {
                 tx.send(connected_devices).unwrap();
             }
@@ -142,6 +154,8 @@ impl TrayApp {
         let tray_icon = Rc::clone(&self.tray_icon);
         let devices = Arc::clone(&self.devices);
         let device_manager = Arc::clone(&self.device_manager);
+        let console_state = Arc::clone(&self.console_state);
+        let menu_items = Arc::clone(&self.menu_items);
 
         let menu_channel = MenuEvent::receiver();
 
@@ -155,18 +169,39 @@ impl TrayApp {
             }
 
             if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
-                Self::create_tray_icon(&tray_icon, &tray_menu, icon.clone());
+                Self::build_tray(&tray_icon, &tray_menu, icon.clone());
             }
 
             if let Ok(event) = menu_channel.try_recv() {
-                if event.id == tray_menu.items()[0].id() {
+                let menu_items = menu_items.lock().unwrap();
+
+                let show_console_item = &menu_items[0];
+                let quit_item = &menu_items[1];
+
+                if event.id == show_console_item.id() {
+                    let mut visible = console_state.lock().unwrap();
+
+                    if *visible {
+                        unsafe {ShowWindow(GetConsoleWindow(), winuser::SW_HIDE)};
+                        show_console_item.set_text("Show Log Window");
+                        trace!("hiding log window");
+                        *visible = false;
+                    } else {
+                        unsafe {ShowWindow(GetConsoleWindow(), SW_SHOW)};
+                        show_console_item.set_text("Hide Log Window");
+                        trace!("showing log window");
+                        *visible = true
+                    }
+                }
+
+                if event.id == quit_item.id() {
                     *control_flow = tao::event_loop::ControlFlow::Exit;
                 }
             }
         });
     }
 
-    fn create_tray_icon(
+    fn build_tray(
         tray_icon: &Rc<Mutex<Option<TrayIcon>>>,
         tray_menu: &Menu,
         icon: tray_icon::Icon,

@@ -1821,6 +1821,7 @@ dependencies = [
  "pretty_env_logger",
  "tao",
  "tray-icon",
+ "winapi",
 ]
 
 [[package]]
