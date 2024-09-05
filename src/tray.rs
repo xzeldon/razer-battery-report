@@ -15,7 +15,7 @@ use tray_icon::{
 };
 use winapi::um::{
     wincon::GetConsoleWindow,
-    winuser::{self, ShowWindow, SW_SHOW},
+    winuser::{self, ShowWindow},
 };
 
 const BATTERY_UPDATE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
