@@ -3,6 +3,7 @@ use std::{
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
     thread,
+    time::Duration,
 };
 
 use crate::manager::DeviceManager;
@@ -193,46 +194,53 @@ impl TrayApp {
 
         let menu_channel = MenuEvent::receiver();
 
+        let mut last_update = std::time::Instant::now();
+        let update_interval = Duration::from_millis(100);
+
         event_loop.run(move |event, _, control_flow| {
-            *control_flow = tao::event_loop::ControlFlow::WaitUntil(
-                std::time::Instant::now() + std::time::Duration::from_millis(100),
-            );
+            *control_flow = tao::event_loop::ControlFlow::Wait;
 
-            if let Ok(device_ids) = rx.try_recv() {
-                Self::update(&devices, &device_manager, &device_ids, &tray_icon);
-            }
+            match event {
+                tao::event::Event::NewEvents(tao::event::StartCause::Init) => {
+                    TrayInner::build_tray(&tray_icon, &tray_menu, icon.clone());
+                }
+                tao::event::Event::MainEventsCleared => {
+                    // Check if it's time to process updates
+                    if last_update.elapsed() >= update_interval {
+                        while let Ok(device_ids) = rx.try_recv() {
+                            Self::update(&devices, &device_manager, &device_ids, &tray_icon);
+                        }
 
-            if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
-                // We create the icon once the event loop is actually running
-                // to prevent issues like https://github.com/tauri-apps/tray-icon/issues/90
-                TrayInner::build_tray(&tray_icon, &tray_menu, icon.clone());
-            }
+                        while let Ok(event) = menu_channel.try_recv() {
+                            let menu_items = menu_items.lock().unwrap();
+                            let show_console_item = &menu_items[0];
+                            let quit_item = &menu_items[1];
 
-            if let Ok(event) = menu_channel.try_recv() {
-                let menu_items = menu_items.lock().unwrap();
+                            if event.id == show_console_item.id() {
+                                let mut visible = console_state.lock().unwrap();
+                                *visible = !*visible;
 
-                let show_console_item = &menu_items[0];
-                let quit_item = &menu_items[1];
+                                if *visible {
+                                    unsafe { ShowWindow(GetConsoleWindow(), winuser::SW_SHOW) };
+                                    show_console_item.set_text("Hide Log Window");
+                                    trace!("showing log window");
+                                } else {
+                                    unsafe { ShowWindow(GetConsoleWindow(), winuser::SW_HIDE) };
+                                    show_console_item.set_text("Show Log Window");
+                                    trace!("hiding log window");
+                                }
+                            }
 
-                if event.id == show_console_item.id() {
-                    let mut visible = console_state.lock().unwrap();
+                            if event.id == quit_item.id() {
+                                *control_flow = tao::event_loop::ControlFlow::Exit;
+                                return;
+                            }
+                        }
 
-                    if *visible {
-                        unsafe { ShowWindow(GetConsoleWindow(), winuser::SW_HIDE) };
-                        show_console_item.set_text("Show Log Window");
-                        trace!("hiding log window");
-                        *visible = false;
-                    } else {
-                        unsafe { ShowWindow(GetConsoleWindow(), SW_SHOW) };
-                        show_console_item.set_text("Hide Log Window");
-                        trace!("showing log window");
-                        *visible = true
+                        last_update = std::time::Instant::now();
                     }
                 }
-
-                if event.id == quit_item.id() {
-                    *control_flow = tao::event_loop::ControlFlow::Exit;
-                }
+                _ => (),
             }
         });
     }
