@@ -1,6 +1,6 @@
 [package]
 name = "razer-battery-report"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["xzeldon <contact@zeldon.ru>"]
 edition = "2021"
 description = "Razer Battery Level Tray Indicator"
