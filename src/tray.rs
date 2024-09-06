@@ -3,6 +3,7 @@ use std::{
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
     thread,
+    time::{Duration, Instant},
 };
 
 use crate::manager::DeviceManager;
@@ -195,7 +196,7 @@ impl TrayApp {
 
         event_loop.run(move |event, _, control_flow| {
             *control_flow = tao::event_loop::ControlFlow::WaitUntil(
-                std::time::Instant::now() + std::time::Duration::from_millis(100),
+                Instant::now() + Duration::from_millis(100),
             );
 
             if let Ok(device_ids) = rx.try_recv() {
