@@ -3,7 +3,6 @@ use std::{
     rc::Rc,
     sync::{mpsc, Arc, Mutex},
     thread,
-    time::{Duration, Instant},
 };
 
 use crate::manager::DeviceManager;
@@ -15,7 +14,7 @@ use tray_icon::{
 };
 use winapi::um::{
     wincon::GetConsoleWindow,
-    winuser::{self, ShowWindow},
+    winuser::{self, ShowWindow, SW_SHOW},
 };
 
 const BATTERY_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
@@ -194,53 +193,46 @@ impl TrayApp {
 
         let menu_channel = MenuEvent::receiver();
 
-        let mut last_update = Instant::now();
-        let update_interval = Duration::from_millis(100);
-
         event_loop.run(move |event, _, control_flow| {
-            *control_flow = tao::event_loop::ControlFlow::Wait;
+            *control_flow = tao::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(100),
+            );
 
-            match event {
-                tao::event::Event::NewEvents(tao::event::StartCause::Init) => {
-                    TrayInner::build_tray(&tray_icon, &tray_menu, icon.clone());
-                }
-                tao::event::Event::MainEventsCleared => {
-                    // Check if it's time to process updates
-                    if last_update.elapsed() >= update_interval {
-                        while let Ok(device_ids) = rx.try_recv() {
-                            Self::update(&devices, &device_manager, &device_ids, &tray_icon);
-                        }
+            if let Ok(device_ids) = rx.try_recv() {
+                Self::update(&devices, &device_manager, &device_ids, &tray_icon);
+            }
 
-                        while let Ok(event) = menu_channel.try_recv() {
-                            let menu_items = menu_items.lock().unwrap();
-                            let show_console_item = &menu_items[0];
-                            let quit_item = &menu_items[1];
+            if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
+                // We create the icon once the event loop is actually running
+                // to prevent issues like https://github.com/tauri-apps/tray-icon/issues/90
+                TrayInner::build_tray(&tray_icon, &tray_menu, icon.clone());
+            }
 
-                            if event.id == show_console_item.id() {
-                                let mut visible = console_state.lock().unwrap();
-                                *visible = !*visible;
+            if let Ok(event) = menu_channel.try_recv() {
+                let menu_items = menu_items.lock().unwrap();
 
-                                if *visible {
-                                    unsafe { ShowWindow(GetConsoleWindow(), winuser::SW_SHOW) };
-                                    show_console_item.set_text("Hide Log Window");
-                                    trace!("showing log window");
-                                } else {
-                                    unsafe { ShowWindow(GetConsoleWindow(), winuser::SW_HIDE) };
-                                    show_console_item.set_text("Show Log Window");
-                                    trace!("hiding log window");
-                                }
-                            }
+                let show_console_item = &menu_items[0];
+                let quit_item = &menu_items[1];
 
-                            if event.id == quit_item.id() {
-                                *control_flow = tao::event_loop::ControlFlow::Exit;
-                                return;
-                            }
-                        }
+                if event.id == show_console_item.id() {
+                    let mut visible = console_state.lock().unwrap();
 
-                        last_update = Instant::now();
+                    if *visible {
+                        unsafe { ShowWindow(GetConsoleWindow(), winuser::SW_HIDE) };
+                        show_console_item.set_text("Show Log Window");
+                        trace!("hiding log window");
+                        *visible = false;
+                    } else {
+                        unsafe { ShowWindow(GetConsoleWindow(), SW_SHOW) };
+                        show_console_item.set_text("Hide Log Window");
+                        trace!("showing log window");
+                        *visible = true
                     }
                 }
-                _ => (),
+
+                if event.id == quit_item.id() {
+                    *control_flow = tao::event_loop::ControlFlow::Exit;
+                }
             }
         });
     }
