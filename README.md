@@ -12,7 +12,7 @@ Show your wireless Razer devices battery levels in your system tray.
 
 > This is a work in progress and currently support only **Razer DeathAdder V3 Pro**.
 
-> This works pretty well on **Windows**, should work on **Linux** if you _add udev rule to get access to usb devices_ (see [here](https://github.com/libusb/hidapi/blob/master/udev/69-hid.rules)). But I haven't tested yet.
+> Currently, this works only on **Windows**, should work on **Linux** if you _add udev rule to get access to usb devices_ (see [here](https://github.com/libusb/hidapi/blob/master/udev/69-hid.rules)) and remove/`cfg(windows)` some platform-specific code. But I haven't tested yet.
 
 ## Usage
 
