@@ -1,7 +1,8 @@
 use hidapi::HidApi;
 use log::warn;
+use parking_lot::Mutex;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::vec::Vec;
 
 use crate::controller::DeviceController;
@@ -21,7 +22,7 @@ impl DeviceManager {
 
     pub fn fetch_devices(&mut self) -> (Vec<u32>, Vec<u32>) {
         let old_ids: HashSet<u32> = {
-            let controllers = self.device_controllers.lock().unwrap();
+            let controllers = self.device_controllers.lock();
             controllers
                 .iter()
                 .map(|controller| controller.pid as u32)
@@ -37,13 +38,13 @@ impl DeviceManager {
         let removed_devices: Vec<u32> = old_ids.difference(&new_ids).cloned().collect();
         let connected_devices: Vec<u32> = new_ids.difference(&old_ids).cloned().collect();
 
-        *self.device_controllers.lock().unwrap() = new_controllers;
+        *self.device_controllers.lock() = new_controllers;
 
         (removed_devices, connected_devices)
     }
 
     pub fn get_device_name(&self, id: u32) -> Option<String> {
-        let controllers = self.device_controllers.lock().unwrap();
+        let controllers = self.device_controllers.lock();
         controllers
             .iter()
             .find(|controller| controller.pid as u32 == id)
@@ -51,7 +52,7 @@ impl DeviceManager {
     }
 
     pub fn get_device_battery_level(&self, id: u32) -> Option<i32> {
-        let controllers = self.device_controllers.lock().unwrap();
+        let controllers = self.device_controllers.lock();
         let controller = controllers
             .iter()
             .find(|controller| controller.pid as u32 == id)?;
@@ -66,7 +67,7 @@ impl DeviceManager {
     }
 
     pub fn is_device_charging(&self, id: u32) -> Option<bool> {
-        let controllers = self.device_controllers.lock().unwrap();
+        let controllers = self.device_controllers.lock();
         let controller = controllers
             .iter()
             .find(|controller| controller.pid as u32 == id)?;

@@ -28,3 +28,6 @@ image = "0.25.2"
 
 # Windows API
 winapi = { version = "0.3.9", features = ["winuser", "wincon", "consoleapi"] }
+
+# Efficient synchronization primitives (e.g. Mutex, RwLock and etc.)
+parking_lot = "0.12"
