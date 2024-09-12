@@ -11,6 +11,13 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 
+# Faster builds, slower executables
+[profile.dev]
+opt-level = 0
+lto = false
+incremental = true
+codegen-units = 16
+
 [dependencies]
 # Communicate with HID devices
 hidapi = "2.6.3"
