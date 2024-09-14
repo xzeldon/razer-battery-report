@@ -43,7 +43,7 @@ To build, you must have [Rust](https://www.rust-lang.org/) and
   - [ ] Force update devices button in tray menu
   - [ ] Colored tray icons for different battery levels
   - [x] Show log window button in tray menu
-  - [ ] Further reduce CPU usage by using Event Loop Proxy events (more info [here](https://github.com/tauri-apps/tray-icon/issues/83#issuecomment-1697773065))
+  - [x] Further reduce CPU usage by using Event Loop Proxy events (more info [here](https://github.com/tauri-apps/tray-icon/issues/83#issuecomment-1697773065))
 - [ ] Prebuilt Binary
 - [ ] Command Line Arguments for update frequency
 - [ ] Support for other Razer Devices (I only have DeathAdder V3 Pro, so I won't be able to test it with other devices)

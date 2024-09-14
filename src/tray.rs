@@ -1,21 +1,20 @@
 use std::{
-    collections::HashMap,
-    rc::Rc,
-    sync::{mpsc, Arc},
+    collections::{HashMap, HashSet},
+    sync::Arc,
     thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crate::{console::DebugConsole, manager::DeviceManager};
 use log::{error, info, trace};
 use parking_lot::Mutex;
-use tao::event_loop::EventLoopBuilder;
+use tao::event_loop::{EventLoopBuilder, EventLoopProxy};
 use tray_icon::{
-    menu::{Menu, MenuEvent, MenuItem},
+    menu::{IsMenuItem, Menu, MenuEvent, MenuItem},
     TrayIcon, TrayIconBuilder,
 };
 
-const BATTERY_UPDATE_INTERVAL: Duration = Duration::from_secs(60);
+const BATTERY_UPDATE_INTERVAL: Duration = Duration::from_secs(300); // 5 min
 const DEVICE_FETCH_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Debug)]
@@ -41,7 +40,7 @@ impl MemoryDevice {
 }
 
 pub struct TrayInner {
-    tray_icon: Rc<Mutex<Option<TrayIcon>>>,
+    tray_icon: Arc<Mutex<Option<TrayIcon>>>,
     menu_items: Arc<Mutex<Vec<MenuItem>>>,
     debug_console: Arc<DebugConsole>,
 }
@@ -49,7 +48,7 @@ pub struct TrayInner {
 impl TrayInner {
     fn new(debug_console: Arc<DebugConsole>) -> Self {
         Self {
-            tray_icon: Rc::new(Mutex::new(None)),
+            tray_icon: Arc::new(Mutex::new(None)),
             menu_items: Arc::new(Mutex::new(Vec::new())),
             debug_console,
         }
@@ -65,14 +64,19 @@ impl TrayInner {
         menu_items.push(show_console_item);
         menu_items.push(quit_item);
 
+        let item_refs: Vec<&dyn IsMenuItem> = menu_items
+            .iter()
+            .map(|item| item as &dyn IsMenuItem)
+            .collect();
+
         tray_menu
-            .append_items(&[&menu_items[0], &menu_items[1]])
-            .unwrap();
+            .append_items(&item_refs)
+            .expect("Failed to append menu items");
         tray_menu
     }
 
     fn build_tray(
-        tray_icon: &Rc<Mutex<Option<TrayIcon>>>,
+        tray_icon: &Arc<Mutex<Option<TrayIcon>>>,
         tray_menu: &Menu,
         icon: tray_icon::Icon,
     ) {
@@ -95,6 +99,12 @@ pub struct TrayApp {
     tray_inner: TrayInner,
 }
 
+#[derive(Debug)]
+enum TrayEvent {
+    DeviceUpdate(Vec<u32>),
+    MenuEvent(MenuEvent),
+}
+
 impl TrayApp {
     pub fn new(debug_console: DebugConsole) -> Self {
         Self {
@@ -106,15 +116,15 @@ impl TrayApp {
 
     pub fn run(&self) {
         let icon = Self::create_icon();
-        let event_loop = EventLoopBuilder::new().build();
+        let event_loop = EventLoopBuilder::with_user_event().build();
         let tray_menu = self.tray_inner.create_menu();
 
-        let (sender, receiver) = mpsc::channel();
+        let proxy = event_loop.create_proxy();
 
-        self.spawn_device_fetch_thread(sender.clone());
-        self.spawn_battery_check_thread(sender);
+        self.spawn_device_fetch_thread(proxy.clone());
+        self.spawn_battery_check_thread(proxy.clone());
 
-        self.run_event_loop(event_loop, icon, tray_menu, receiver);
+        self.run_event_loop(event_loop, icon, tray_menu, proxy);
     }
 
     fn create_icon() -> tray_icon::Icon {
@@ -128,17 +138,18 @@ impl TrayApp {
         tray_icon::Icon::from_rgba(rgba, width, height).expect("Failed to create icon")
     }
 
-    fn spawn_device_fetch_thread(&self, tx: mpsc::Sender<Vec<u32>>) {
+    fn spawn_device_fetch_thread(&self, proxy: EventLoopProxy<TrayEvent>) {
         let devices = Arc::clone(&self.devices);
         let device_manager = Arc::clone(&self.device_manager);
 
-        thread::spawn(move || loop {
-            let (removed_devices, connected_devices) = {
-                let mut manager = device_manager.lock();
-                manager.fetch_devices()
-            };
+        thread::spawn(move || {
+            let mut last_devices = HashSet::new();
+            loop {
+                let (removed_devices, connected_devices) = {
+                    let mut manager = device_manager.lock();
+                    manager.fetch_devices()
+                };
 
-            {
                 let mut devices = devices.lock();
                 for id in removed_devices {
                     if let Some(device) = devices.remove(&id) {
@@ -147,85 +158,85 @@ impl TrayApp {
                 }
 
                 for &id in &connected_devices {
-                    if let std::collections::hash_map::Entry::Vacant(e) = devices.entry(id) {
+                    if !devices.contains_key(&id) {
                         if let Some(name) = device_manager.lock().get_device_name(id) {
-                            e.insert(MemoryDevice::new(name.clone(), id));
+                            devices.insert(id, MemoryDevice::new(name.clone(), id));
                             info!("New device: {}", name);
                         } else {
                             error!("Failed to get device name for id: {}", id);
                         }
                     }
                 }
-            }
 
-            if !connected_devices.is_empty() {
-                tx.send(connected_devices).unwrap();
-            }
+                let current_devices: HashSet<_> = connected_devices.iter().cloned().collect();
+                if current_devices != last_devices {
+                    let _ = proxy.send_event(TrayEvent::DeviceUpdate(connected_devices));
+                    last_devices = current_devices;
+                }
 
-            thread::sleep(DEVICE_FETCH_INTERVAL);
+                thread::sleep(DEVICE_FETCH_INTERVAL);
+            }
         });
     }
 
-    fn spawn_battery_check_thread(&self, tx: mpsc::Sender<Vec<u32>>) {
+    fn spawn_battery_check_thread(&self, proxy: EventLoopProxy<TrayEvent>) {
         let devices = Arc::clone(&self.devices);
 
         thread::spawn(move || loop {
             let device_ids: Vec<u32> = devices.lock().keys().cloned().collect();
-            tx.send(device_ids).unwrap();
+            let _ = proxy.send_event(TrayEvent::DeviceUpdate(device_ids));
             thread::sleep(BATTERY_UPDATE_INTERVAL);
         });
     }
 
     fn run_event_loop(
         &self,
-        event_loop: tao::event_loop::EventLoop<()>,
+        event_loop: tao::event_loop::EventLoop<TrayEvent>,
         icon: tray_icon::Icon,
         tray_menu: Menu,
-        rx: mpsc::Receiver<Vec<u32>>,
+        proxy: EventLoopProxy<TrayEvent>,
     ) {
         let devices = Arc::clone(&self.devices);
         let device_manager = Arc::clone(&self.device_manager);
-        let tray_icon = Rc::clone(&self.tray_inner.tray_icon);
+        let tray_icon = Arc::clone(&self.tray_inner.tray_icon);
         let debug_console = Arc::clone(&self.tray_inner.debug_console);
         let menu_items = Arc::clone(&self.tray_inner.menu_items);
 
         let menu_channel = MenuEvent::receiver();
 
         event_loop.run(move |event, _, control_flow| {
-            *control_flow = tao::event_loop::ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(100),
-            );
+            *control_flow = tao::event_loop::ControlFlow::Wait;
 
-            if let Ok(device_ids) = rx.try_recv() {
-                Self::update(&devices, &device_manager, &device_ids, &tray_icon);
-            }
+            match event {
+                tao::event::Event::NewEvents(tao::event::StartCause::Init) => {
+                    TrayInner::build_tray(&tray_icon, &tray_menu, icon.clone());
+                }
+                tao::event::Event::UserEvent(TrayEvent::DeviceUpdate(device_ids)) => {
+                    Self::update(&devices, &device_manager, &device_ids, &tray_icon);
+                }
+                tao::event::Event::UserEvent(TrayEvent::MenuEvent(event)) => {
+                    let menu_items = menu_items.lock();
 
-            if let tao::event::Event::NewEvents(tao::event::StartCause::Init) = event {
-                // We create the icon once the event loop is actually running
-                // to prevent issues like https://github.com/tauri-apps/tray-icon/issues/90
-                TrayInner::build_tray(&tray_icon, &tray_menu, icon.clone());
+                    if event.id == menu_items[0].id() {
+                        debug_console.toggle_visibility();
+                        let visible = debug_console.is_visible();
+                        menu_items[0].set_text(if visible {
+                            "Hide Log Window"
+                        } else {
+                            "Show Log Window"
+                        });
+                        trace!("{} log window", if visible { "showing" } else { "hiding" });
+                    }
+
+                    if event.id == menu_items[1].id() {
+                        *control_flow = tao::event_loop::ControlFlow::Exit;
+                    }
+                }
+                _ => (),
             }
 
             if let Ok(event) = menu_channel.try_recv() {
-                let menu_items = menu_items.lock();
-
-                let show_console_item = &menu_items[0];
-                let quit_item = &menu_items[1];
-
-                if event.id == show_console_item.id() {
-                    debug_console.toggle_visibility();
-                    let visible = debug_console.is_visible();
-                    show_console_item.set_text(if visible {
-                        "Hide Log Window"
-                    } else {
-                        "Show Log Window"
-                    });
-                    trace!("{} log window", if visible { "showing" } else { "hiding" });
-                }
-
-                if event.id == quit_item.id() {
-                    *control_flow = tao::event_loop::ControlFlow::Exit;
-                }
+                let _ = proxy.send_event(TrayEvent::MenuEvent(event));
             }
         });
     }
@@ -234,7 +245,7 @@ impl TrayApp {
         devices: &Arc<Mutex<HashMap<u32, MemoryDevice>>>,
         manager: &Arc<Mutex<DeviceManager>>,
         device_ids: &[u32],
-        tray_icon: &Rc<Mutex<Option<TrayIcon>>>,
+        tray_icon: &Arc<Mutex<Option<TrayIcon>>>,
     ) {
         let mut devices = devices.lock();
         let manager = manager.lock();
