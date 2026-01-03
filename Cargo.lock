@@ -2389,12 +2389,10 @@ dependencies = [
  "image",
  "log",
  "notify-rust",
- "parking_lot",
  "pretty_env_logger",
  "serde",
  "tao",
  "tray-icon",
- "winapi",
 ]
 
 [[package]]

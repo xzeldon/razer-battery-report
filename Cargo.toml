@@ -43,11 +43,5 @@ auto-launch = "0.5.0"
 # Image manipulation
 image = "0.25.9"
 
-# Windows API
-winapi = { version = "0.3.9", features = ["winuser", "wincon", "consoleapi"] }
-
-# Efficient synchronization primitives (e.g. Mutex, RwLock and etc.)
-parking_lot = "0.12"
-
 # Desktop notifications
 notify-rust = "4.11.7"
