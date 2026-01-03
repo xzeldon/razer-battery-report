@@ -5,6 +5,7 @@ const APP_NAME: &str = "razer-battery-report";
 
 /// Configuration structure holding user preferences.
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct AppConfig {
     /// Whether desktop notifications are enabled.
     pub notifications_enabled: bool,

@@ -38,10 +38,20 @@ fn main() -> anyhow::Result<()> {
     info!("Starting Razer Battery Report...");
 
     let config = match AppConfig::load() {
-        Ok(cfg) => cfg,
+        Ok(cfg) => {
+            // Force save to ensure new fields are written to the file on disk
+            if let Err(e) = cfg.save() {
+                error!("Failed to update config file on disk: {}", e);
+            }
+            cfg
+        }
         Err(e) => {
             error!("Config error: {}. Using defaults.", e);
-            AppConfig::default()
+            let cfg = AppConfig::default();
+            if let Err(save_err) = cfg.save() {
+                error!("Failed to save default config: {}", save_err);
+            }
+            cfg
         }
     };
 
