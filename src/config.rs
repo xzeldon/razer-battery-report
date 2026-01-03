@@ -17,6 +17,9 @@ pub struct AppConfig {
 
     /// Battery percentage threshold for low battery warning.
     pub low_battery_threshold: u8,
+
+    /// Battery percentage threshold for critical battery warning.
+    pub critical_battery_threshold: u8,
 }
 
 /// Default values for the configuration.
@@ -27,6 +30,7 @@ impl Default for AppConfig {
             polling_interval_secs: 60, // 1 minute
             autostart_enabled: false,
             low_battery_threshold: 15,
+            critical_battery_threshold: 5,
         }
     }
 }
@@ -40,6 +44,7 @@ impl AppConfig {
     }
 
     /// Saves the current configuration to disk.
+    #[allow(dead_code)]
     pub fn save(&self) -> anyhow::Result<()> {
         confy::store(APP_NAME, "default", self)?;
         Ok(())
