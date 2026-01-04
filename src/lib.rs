@@ -345,20 +345,40 @@ impl TryFrom<&hidapi::DeviceInfo> for Device {
     }
 }
 
+/// Represents a valid battery percentage (0-100).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct BatteryLevel(u8);
+
+impl BatteryLevel {
+    pub fn new(value: u8) -> Self {
+        Self(value.min(100))
+    }
+
+    pub fn value(&self) -> u8 {
+        self.0
+    }
+}
+
+impl fmt::Display for BatteryLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}%", self.0)
+    }
+}
+
 #[derive(Debug, Default)]
 pub enum BatteryStatus {
     #[default]
     Unknown,
-    Charging(u8),
-    Level(u8),
+    Charging(BatteryLevel),
+    Level(BatteryLevel),
 }
 
 impl fmt::Display for BatteryStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BatteryStatus::Unknown => write!(f, "Unknown"),
-            BatteryStatus::Charging(percentage) => write!(f, "Charging ({percentage}%)"),
-            BatteryStatus::Level(percentage) => write!(f, "{percentage}%"),
+            BatteryStatus::Charging(level) => write!(f, "Charging ({})", level),
+            BatteryStatus::Level(level) => write!(f, "{}", level),
         }
     }
 }
@@ -387,12 +407,13 @@ impl DeviceHandle {
     pub fn get_battery_level(&self) -> DeviceResult<BatteryStatus> {
         let battery_report = send_command(self, 0x07, 0x80)?;
         // Byte 9 contains the battery level mapped to 0-255
-        let battery_level = (battery_report[9] as f32 / 255.0 * 100.0) as u8;
+        let raw_level = (battery_report[9] as f32 / 255.0 * 100.0) as u8;
+        let level = BatteryLevel::new(raw_level);
 
         Ok(if self.is_charging()? {
-            BatteryStatus::Charging(battery_level)
+            BatteryStatus::Charging(level)
         } else {
-            BatteryStatus::Level(battery_level)
+            BatteryStatus::Level(level)
         })
     }
 
@@ -466,7 +487,7 @@ const REPORT_DATA_SIZE: usize = 90;
 // Constants for report structure
 const REPORT_ARGS_SIZE: usize = 80;
 const REPORT_CRC_OFFSET: usize = 2;
-const REPORT_CRC_LENGTH: usize = 86; // 88 - 2
+const REPORT_CRC_LENGTH: usize = 86;
 
 /// Calculates CRC for the report using a XOR-based algorithm.
 ///

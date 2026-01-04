@@ -37,9 +37,10 @@ impl IconSet {
             librazer::BatteryStatus::Charging(_) => &self.white,
 
             librazer::BatteryStatus::Level(level) => {
-                if *level <= critical_threshold {
+                let val = level.value();
+                if val <= critical_threshold {
                     &self.red
-                } else if *level <= low_threshold {
+                } else if val <= low_threshold {
                     &self.yellow
                 } else {
                     &self.white
