@@ -8,10 +8,10 @@ mod state;
 mod tray;
 mod worker;
 
-use std::{thread, time::Duration};
+use std::{collections::HashMap, thread, time::Duration};
 
 use log::{error, info};
-use razer_battery_report as librazer;
+use razer_battery_report::{self as librazer};
 
 use config::AppConfig;
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder};
@@ -63,6 +63,11 @@ fn main() -> anyhow::Result<()> {
     let mut state_manager = DeviceStateManager::new();
     let mut app_tray = AppTray::new(&icons)?;
 
+    // UI State
+    let mut active_device: Option<librazer::DeviceType> = None;
+    let mut last_known_status: HashMap<librazer::DeviceType, librazer::BatteryStatus> =
+        HashMap::new();
+
     // Setup Event Loop
     let event_loop: EventLoop<AppEvent> = EventLoopBuilder::<AppEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
@@ -95,13 +100,26 @@ fn main() -> anyhow::Result<()> {
 
                 // Update state first
                 state_manager.process_update(&data, &config);
+                last_known_status = data.into_iter().collect();
+
+                let is_active_device_missing = active_device
+                    .as_ref()
+                    .is_none_or(|d| !last_known_status.contains_key(d));
+
+                if is_active_device_missing {
+                    if let Some(first_key) = last_known_status.keys().next() {
+                        active_device = Some(*first_key);
+                        info!("Auto-selected active device: {}", first_key);
+                    } else {
+                        active_device = None;
+                    }
+                }
 
                 // Update Tray
-                // For now, just pick first device
-                if let Some((device_type, status)) = data.first() {
+                if let Some(current_active) = &active_device {
                     app_tray.update(
-                        device_type,
-                        status,
+                        &last_known_status,
+                        current_active,
                         &icons,
                         config.low_battery_threshold,
                         config.critical_battery_threshold,
@@ -111,17 +129,43 @@ fn main() -> anyhow::Result<()> {
 
             // Menu clicks
             tao::event::Event::UserEvent(AppEvent::MenuEvent(menu_event)) => {
+                // Exit
                 if menu_event.id == app_tray.quit_item.id() {
                     info!("Exit requested via tray menu.");
+
+                    if let Err(e) = _worker_tx.send(worker::WorkerCommand::Quit) {
+                        error!("Failed to send Quit command to worker: {}", e);
+                    }
+
                     *control_flow = ControlFlow::Exit;
+                }
+                // Device selection
+                else if let Some(selected_device) =
+                    app_tray.handle_menu_click(menu_event.id.as_ref())
+                {
+                    info!("User selected device: {}", selected_device);
+                    active_device = Some(selected_device);
+
+                    // This redraws the menu with the correct checkmark immediately.
+                    app_tray.update(
+                        &last_known_status,
+                        &selected_device,
+                        &icons,
+                        config.low_battery_threshold,
+                        config.critical_battery_threshold,
+                    );
+
+                    // Trigger worker refresh to get fresh data
+                    let _ = _worker_tx.send(worker::WorkerCommand::Refresh);
                 }
             }
 
-            // Exit request
+            // System exit request (e.g. OS shutdown)
             tao::event::Event::WindowEvent {
                 event: tao::event::WindowEvent::CloseRequested,
                 ..
             } => {
+                let _ = _worker_tx.send(worker::WorkerCommand::Quit);
                 *control_flow = ControlFlow::Exit;
             }
 

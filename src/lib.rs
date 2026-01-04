@@ -131,6 +131,9 @@ impl Razer {
 /// The model of the device.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum DeviceType {
+    /// Virtual device for debugging
+    #[cfg(debug_assertions)]
+    DummyDevice,
     /// Razer [DeathAdder V3 Pro][dav3pro] mouse
     ///
     /// [dav3pro]: https://www.razer.com/gaming-mice/razer-deathadder-v3-pro
@@ -148,6 +151,10 @@ pub enum DeviceType {
 impl fmt::Display for DeviceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            #[cfg(debug_assertions)]
+            DeviceType::DummyDevice => {
+                write!(f, "Dummy Device")
+            }
             DeviceType::DeathAdderV3Pro => {
                 write!(f, "Razer DeathAdder V3 Pro")
             }
@@ -472,6 +479,8 @@ fn device_type_from_product_id(product_id: u16) -> Option<(DeviceType, Connectio
 
 fn transaction_id_from_device_type(device_type: &DeviceType) -> u8 {
     match device_type {
+        #[cfg(debug_assertions)]
+        DeviceType::DummyDevice => 0x00,
         DeviceType::DeathAdderV3Pro => 0x1F,
         DeviceType::DeathAdderV3HyperSpeed => 0x1F,
         DeviceType::DeathAdderV2Pro => 0x1F,

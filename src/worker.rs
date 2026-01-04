@@ -11,10 +11,8 @@ use razer_battery_report as librazer;
 /// Commands sent from the Main Thread to the Worker Thread.
 pub enum WorkerCommand {
     /// Force an immediate refresh of devices and battery status.
-    #[allow(dead_code)]
     Refresh,
-    /// Stop the worker loop (graceful shutdown).
-    #[allow(dead_code)]
+    /// Stop the worker loop.
     Quit,
 }
 
@@ -77,10 +75,29 @@ impl Worker {
     fn update_batteries(&mut self) {
         let devices = self.context.get_connected_devices();
 
-        let updates: Vec<_> = devices
+        #[allow(unused_mut)]
+        let mut updates: Vec<_> = devices
             .iter()
             .filter_map(|device| process_device(&self.context, device))
             .collect();
+
+        // Mock fake device for debug purposes
+        #[cfg(debug_assertions)]
+        {
+            use razer_battery_report::{BatteryLevel, BatteryStatus, DeviceType};
+
+            // Generate a fake battery level based on seconds to make it change
+            let secs = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let fake_level = (secs % 100) as u8;
+
+            updates.push((
+                DeviceType::DummyDevice,
+                BatteryStatus::Level(BatteryLevel::new(fake_level)),
+            ));
+        }
 
         if !updates.is_empty() {
             let _ = self.proxy.send_event(AppEvent::BatteryUpdate(updates));
