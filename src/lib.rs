@@ -365,7 +365,7 @@ impl fmt::Display for BatteryLevel {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum BatteryStatus {
     #[default]
     Unknown,
