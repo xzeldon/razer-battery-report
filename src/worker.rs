@@ -17,14 +17,47 @@ pub enum WorkerCommand {
     Quit,
 }
 
+/// Processes a single device: opens it and retrieves the battery level.
+fn process_device(
+    context: &librazer::Razer,
+    device: &librazer::Device,
+) -> Option<(librazer::DeviceType, librazer::BatteryStatus)> {
+    let handle = device
+        .open(context)
+        .map_err(|e| {
+            error!("Failed to open device {:?}: {}", device.device_type(), e);
+        })
+        .ok()?;
+
+    match handle.get_battery_level() {
+        Ok(status) => {
+            debug!("Device {:?} status: {}", device.device_type(), status);
+            Some((device.device_type(), status))
+        }
+        Err(e) => {
+            // Check if the device being asleep/off
+            if let librazer::DeviceError::CommunicationFailed {
+                reason: librazer::CommunicationFailureReason::CommandTimedOut,
+                ..
+            } = e
+            {
+                debug!(
+                    "Device {:?} timed out (Sleep/Off). Keeping last known state.",
+                    device.device_type()
+                );
+            } else {
+                error!(
+                    "Failed to get battery for {:?}: {}",
+                    device.device_type(),
+                    e
+                );
+            }
+            None
+        }
+    }
+}
+
 /// Starts the background worker thread.
-///
-/// # Arguments
-/// * `proxy` - The channel to send events TO the UI (Main Thread).
-/// * `polling_interval` - Time to sleep between automatic updates.
-///
-/// # Returns
-/// * `Sender<WorkerCommand>` - A channel to send commands TO the worker.
 pub fn start_worker(
     proxy: EventLoopProxy<AppEvent>,
     polling_interval: Duration,
@@ -38,17 +71,15 @@ pub fn start_worker(
         let mut context = match librazer::Razer::new() {
             Ok(ctx) => ctx,
             Err(e) => {
-                error!("Critical: Failed to initialize Razer context in worker: {}. Retrying in loop...", e);
-                // We construct a dummy context or handle this inside the loop.
-                // For simplicity, let's try to re-init inside the loop if needed.
-                // But for now, let's assume if init fails, we can't do much.
+                error!("Critical: Failed to initialize Razer context. Worker thread stopping. Error: {}", e);
+                // Maybe try creating the context again?
+                // For now, we return, which kills the worker (but not the main UI).
                 return;
             }
         };
 
         loop {
             // Check for incoming commands (Non-blocking)
-            // We use try_recv to see if the UI wants us to do something specific.
             match rx.try_recv() {
                 Ok(WorkerCommand::Quit) => {
                     info!("Worker received Quit command. Shutting down.");
@@ -73,33 +104,13 @@ pub fn start_worker(
             }
 
             // Collect data
-            let devices = context.get_connected_devices();
-            let mut updates = Vec::new();
-
-            for device in devices {
-                // We create a new handle for each check to be stateless and safe
-                match device.open(&context) {
-                    Ok(handle) => match handle.get_battery_level() {
-                        Ok(status) => {
-                            debug!("Device {:?} status: {}", device.device_type(), status);
-                            updates.push((device.device_type(), status));
-                        }
-                        Err(e) => {
-                            error!(
-                                "Failed to get battery for {:?}: {}",
-                                device.device_type(),
-                                e
-                            );
-                        }
-                    },
-                    Err(e) => {
-                        error!("Failed to open device {:?}: {}", device.device_type(), e);
-                    }
-                }
-            }
+            let updates: Vec<_> = context
+                .get_connected_devices()
+                .into_iter()
+                .filter_map(|device| process_device(&context, &device))
+                .collect();
 
             // Send data to UI
-            // This wakes up the Event Loop!
             if !updates.is_empty() {
                 let _ = proxy.send_event(AppEvent::BatteryUpdate(updates));
             }

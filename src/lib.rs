@@ -181,16 +181,28 @@ pub enum DeviceError {
     DeviceDisconnected,
 }
 
-/// Specific reasons why device communication might fail
+/// Specific reasons why device communication might fail.
+///
+/// Protocol status codes are derived from the OpenRazer driver definitions:
+/// <https://github.com/openrazer/openrazer/blob/551c12d1f32cf0c7afdbf0e425683bdfb45cf261/driver/razercommon.h#L89-L94>
 #[derive(Debug)]
 pub enum CommunicationFailureReason {
-    /// Failed to send feature report to device
-    SendFeatureReport(HidError),
-    /// Failed to get feature report from device
-    GetFeatureReport(HidError),
-    /// Device returned unexpected response status
-    UnexpectedStatus(u8, u8),
-    /// Maximum retry attempts reached
+    /// HID error while writing data to the device.
+    TransportWriteFailed(HidError),
+    /// HID error while reading data from the device.
+    TransportReadFailed(HidError),
+    /// The device is busy processing another request (`0x01`).
+    CommandBusy,
+    /// The device reported failure (`0x03`).
+    CommandFailure,
+    /// The device did not respond within the timeout (`0x04`).
+    /// Typically happens when the device is in deep sleep, turned off, or out of range.
+    CommandTimedOut,
+    /// The command is not supported by this device (`0x05`).
+    CommandNotSupported,
+    /// Device returned a status code not recognized by this library.
+    UnknownStatus { status: u8, attempt: u8 },
+    /// Maximum retry attempts reached without a successful response.
     MaxRetriesExceeded,
 }
 
@@ -228,22 +240,24 @@ impl fmt::Display for DeviceError {
 impl fmt::Display for CommunicationFailureReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::SendFeatureReport(err) => {
-                write!(f, "failed to send feature report: {}", err)
+            Self::TransportWriteFailed(err) => write!(f, "HID write failed: {}", err),
+            Self::TransportReadFailed(err) => write!(f, "HID read failed: {}", err),
+
+            Self::CommandBusy => write!(f, "device is busy"),
+            Self::CommandFailure => write!(f, "command failed"),
+            Self::CommandTimedOut => write!(f, "command timed out"),
+            Self::CommandNotSupported => {
+                write!(f, "command not supported")
             }
-            Self::GetFeatureReport(err) => {
-                write!(f, "failed to get feature report: {}", err)
-            }
-            Self::UnexpectedStatus(status, attempt) => {
+
+            Self::UnknownStatus { status, attempt } => {
                 write!(
                     f,
-                    "device returned unexpected status: {} on attempt: {}",
+                    "device returned unknown status: {} on attempt: {}",
                     status, attempt
                 )
             }
-            Self::MaxRetriesExceeded => {
-                write!(f, "maximum retry attempts reached")
-            }
+            Self::MaxRetriesExceeded => write!(f, "maximum retry attempts reached"),
         }
     }
 }
@@ -448,7 +462,6 @@ const MAX_RETRIES: u8 = 4;
 const RETRY_DELAY_MS: u64 = 60;
 const REPORT_SIZE: usize = 91;
 const REPORT_DATA_SIZE: usize = 90;
-const VALID_STATUS_RANGE: std::ops::Range<u8> = 0..4;
 
 // Constants for report structure
 const REPORT_ARGS_SIZE: usize = 80;
@@ -524,7 +537,7 @@ fn send_command(
             .send_feature_report(&send_buf)
             .map_err(|e| DeviceError::CommunicationFailed {
                 device_type: device_handle.device_type,
-                reason: CommunicationFailureReason::SendFeatureReport(e),
+                reason: CommunicationFailureReason::TransportWriteFailed(e),
             })?;
 
         std::thread::sleep(std::time::Duration::from_millis(RETRY_DELAY_MS));
@@ -535,19 +548,55 @@ fn send_command(
             .get_feature_report(&mut response)
             .map_err(|e| DeviceError::CommunicationFailed {
                 device_type: device_handle.device_type,
-                reason: CommunicationFailureReason::GetFeatureReport(e),
+                reason: CommunicationFailureReason::TransportReadFailed(e),
             })?;
 
-        // Check response status
-        if VALID_STATUS_RANGE.contains(&response[1]) {
-            let mut result = vec![0u8; REPORT_DATA_SIZE];
-            result.copy_from_slice(&response[1..]);
-            return Ok(result);
-        } else if attempt == MAX_RETRIES - 1 {
-            return Err(DeviceError::CommunicationFailed {
-                device_type: device_handle.device_type,
-                reason: CommunicationFailureReason::UnexpectedStatus(response[1], attempt),
-            });
+        // Check response status (Byte 1)
+        // See RAZER_CMD_* defines in razercommon.h
+        // https://github.com/openrazer/openrazer/blob/551c12d1f32cf0c7afdbf0e425683bdfb45cf261/driver/razercommon.h#L89-L94
+        match response[1] {
+            0x02 => {
+                // RAZER_CMD_SUCCESSFUL
+                let mut result = vec![0u8; REPORT_DATA_SIZE];
+                result.copy_from_slice(&response[1..]);
+                return Ok(result);
+            }
+            0x01 => {
+                // RAZER_CMD_BUSY
+                continue;
+            }
+            0x03 => {
+                // RAZER_CMD_FAILURE
+                if attempt == MAX_RETRIES - 1 {
+                    return Err(DeviceError::CommunicationFailed {
+                        device_type: device_handle.device_type,
+                        reason: CommunicationFailureReason::CommandFailure,
+                    });
+                }
+            }
+            0x04 => {
+                // RAZER_CMD_TIMEOUT
+                return Err(DeviceError::CommunicationFailed {
+                    device_type: device_handle.device_type,
+                    reason: CommunicationFailureReason::CommandTimedOut,
+                });
+            }
+            0x05 => {
+                // RAZER_CMD_NOT_SUPPORTED
+                return Err(DeviceError::CommunicationFailed {
+                    device_type: device_handle.device_type,
+                    reason: CommunicationFailureReason::CommandNotSupported,
+                });
+            }
+            status => {
+                // Unknown status
+                if attempt == MAX_RETRIES - 1 {
+                    return Err(DeviceError::CommunicationFailed {
+                        device_type: device_handle.device_type,
+                        reason: CommunicationFailureReason::UnknownStatus { status, attempt },
+                    });
+                }
+            }
         }
     }
 
