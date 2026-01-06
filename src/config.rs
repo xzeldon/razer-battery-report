@@ -1,3 +1,4 @@
+use razer_battery_report::DeviceType;
 use serde::{Deserialize, Serialize};
 
 /// Application name used for configuration directory resolution.
@@ -21,6 +22,9 @@ pub struct AppConfig {
 
     /// Battery percentage threshold for critical battery warning.
     pub critical_battery_threshold: u8,
+
+    /// The device manually selected by the user to be shown in the tray.
+    pub preferred_device: Option<DeviceType>,
 }
 
 /// Default values for the configuration.
@@ -32,6 +36,7 @@ impl Default for AppConfig {
             autostart_enabled: false,
             low_battery_threshold: 15,
             critical_battery_threshold: 5,
+            preferred_device: None,
         }
     }
 }

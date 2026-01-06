@@ -22,6 +22,8 @@
 use hidapi::HidApi;
 use hidapi::HidDevice;
 use hidapi::HidError;
+use serde::Deserialize;
+use serde::Serialize;
 use std::error::Error;
 use std::fmt;
 
@@ -129,7 +131,7 @@ impl Razer {
 }
 
 /// The model of the device.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum DeviceType {
     /// Virtual device for debugging
     #[cfg(debug_assertions)]

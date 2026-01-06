@@ -1,5 +1,5 @@
 use log::{debug, error, info};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -23,6 +23,7 @@ struct Worker {
     polling_interval: Duration,
     last_battery_query: Instant,
     known_devices_signature: HashSet<(u16, u16)>,
+    last_known_levels: HashMap<librazer::DeviceType, librazer::BatteryStatus>,
 }
 
 impl Worker {
@@ -45,11 +46,11 @@ impl Worker {
                 .checked_sub(polling_interval)
                 .unwrap_or_else(Instant::now),
             known_devices_signature: HashSet::new(),
+            last_known_levels: HashMap::new(),
         })
     }
 
     /// Checks for physical device changes (Hotplug).
-    /// Returns `true` if the device list has changed since the last check.
     fn check_hotplug(&mut self) -> bool {
         if let Err(e) = self.context.refresh_devices() {
             error!("Failed to refresh devices: {}", e);
@@ -74,12 +75,30 @@ impl Worker {
     /// Performs the slow operation of querying battery status for all devices
     fn update_batteries(&mut self) {
         let devices = self.context.get_connected_devices();
+        let mut updates = Vec::new();
 
-        #[allow(unused_mut)]
-        let mut updates: Vec<_> = devices
-            .iter()
-            .filter_map(|device| process_device(&self.context, device))
-            .collect();
+        for device in devices {
+            let result = process_device(&self.context, &device);
+
+            match result {
+                Some((dev_type, status)) => {
+                    self.last_known_levels.insert(dev_type, status);
+                    updates.push((dev_type, status));
+                }
+                None => {
+                    // This keeps the device visible in the tray even if it sleeps.
+                    if let Some(&cached_status) = self.last_known_levels.get(&device.device_type())
+                    {
+                        info!(
+                            "Device {:?} is not responding (Sleep/Off). Using cached status: {}",
+                            device.device_type(),
+                            cached_status
+                        );
+                        updates.push((device.device_type(), cached_status));
+                    }
+                }
+            }
+        }
 
         // Mock fake device for debug purposes
         #[cfg(debug_assertions)]

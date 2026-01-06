@@ -22,9 +22,7 @@ use crate::{icon::IconSet, state::DeviceStateManager, tray::AppTray};
 /// Events that can be sent to the main event loop.
 #[derive(Debug)]
 pub enum AppEvent {
-    /// Update received from the worker thread.
     BatteryUpdate(Vec<(librazer::DeviceType, librazer::BatteryStatus)>),
-    /// User clicked an item in the tray menu.
     #[allow(dead_code)]
     MenuEvent(tray_icon::menu::MenuEvent),
 }
@@ -37,9 +35,8 @@ fn main() -> anyhow::Result<()> {
 
     info!("Starting Razer Battery Report...");
 
-    let config = match AppConfig::load() {
+    let mut config = match AppConfig::load() {
         Ok(cfg) => {
-            // Force save to ensure new fields are written to the file on disk
             if let Err(e) = cfg.save() {
                 error!("Failed to update config file on disk: {}", e);
             }
@@ -64,7 +61,7 @@ fn main() -> anyhow::Result<()> {
     let mut app_tray = AppTray::new(&icons)?;
 
     // UI State
-    let mut active_device: Option<librazer::DeviceType> = None;
+    let mut active_device: Option<librazer::DeviceType> = config.preferred_device;
     let mut last_known_status: HashMap<librazer::DeviceType, librazer::BatteryStatus> =
         HashMap::new();
 
@@ -89,8 +86,8 @@ fn main() -> anyhow::Result<()> {
     // Run Event Loop
     info!("Entering main event loop.");
     event_loop.run(move |event, _, control_flow| {
-        // By default, just wait for events. This effectively sleeps the main thread,
-        // using 0% CPU until the worker sends an event or user interacts with tray.
+        // This effectively sleeps the main thread,  using 0% CPU until
+        // the worker sends an event or user interacts with tray.
         *control_flow = ControlFlow::Wait;
 
         match event {
@@ -102,11 +99,17 @@ fn main() -> anyhow::Result<()> {
                 state_manager.process_update(&data, &config);
                 last_known_status = data.into_iter().collect();
 
-                let is_active_device_missing = active_device
-                    .as_ref()
-                    .is_none_or(|d| !last_known_status.contains_key(d));
+                if let Some(pref) = config.preferred_device {
+                    if last_known_status.contains_key(&pref) {
+                        active_device = Some(pref);
+                    }
+                }
 
-                if is_active_device_missing {
+                let is_active_valid = active_device
+                    .as_ref()
+                    .is_none_or(|d| last_known_status.contains_key(d));
+
+                if !is_active_valid || active_device.is_none() {
                     if let Some(first_key) = last_known_status.keys().next() {
                         active_device = Some(*first_key);
                         info!("Auto-selected active device: {}", first_key);
@@ -154,6 +157,11 @@ fn main() -> anyhow::Result<()> {
                         config.low_battery_threshold,
                         config.critical_battery_threshold,
                     );
+
+                    config.preferred_device = Some(selected_device);
+                    if let Err(e) = config.save() {
+                        error!("Failed to save config: {}", e);
+                    }
 
                     // Trigger worker refresh to get fresh data
                     let _ = _worker_tx.send(worker::WorkerCommand::Refresh);
