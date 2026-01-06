@@ -19,29 +19,27 @@ incremental = true
 codegen-units = 16
 
 [dependencies]
-# Communicate with HID devices
-hidapi = "2.6.4"
-
-# Logging
+# Logging & Error Handling
 log = "0.4.29"
-pretty_env_logger = "0.5.0"
-
-# Event Loop and Tray Icon
-tao = "0.34.5"
-tray-icon = "0.21.3"
-
-# Config & Serialization
-serde = { version = "1.0", features = ["derive"] }
-confy = "2.0.0"
-
-# Error Handling
+flexi_logger = "0.31.7"
 anyhow = "1.0"
 
-# Autostart
+# Configuration, Data & CLI
+serde = { version = "1.0", features = ["derive"] }
+confy = "2.0.0"
+directories = "6.0.0"
+clap = { version = "4.5.54", features = ["derive"] }
+
+# UI & Desktop Integration
+tao = "0.34.5"
+tray-icon = "0.21.3"
+notify-rust = "4.11.7"
 auto-launch = "0.5.0"
 
-# Image manipulation
+# Hardware & Media
+hidapi = "2.6.4"
 image = "0.25.9"
 
-# Desktop notifications
-notify-rust = "4.11.7"
+# Windows specific dependencies
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_System_Console"] }

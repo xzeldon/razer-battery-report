@@ -1,8 +1,35 @@
+use clap::ValueEnum;
 use razer_battery_report::DeviceType;
 use serde::{Deserialize, Serialize};
 
 /// Application name used for configuration directory resolution.
 const APP_NAME: &str = "razer-battery-report";
+
+/// Log levels supported by the application.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "lowercase")]
+pub enum LogLevel {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
+impl std::fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            LogLevel::Off => "off",
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        };
+        write!(f, "{}", s)
+    }
+}
 
 /// Configuration structure holding user preferences.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -25,6 +52,9 @@ pub struct AppConfig {
 
     /// The device manually selected by the user to be shown in the tray.
     pub preferred_device: Option<DeviceType>,
+
+    /// The logging level (off, error, warn, info, debug, trace).
+    pub log_level: LogLevel,
 }
 
 /// Default values for the configuration.
@@ -37,6 +67,7 @@ impl Default for AppConfig {
             low_battery_threshold: 15,
             critical_battery_threshold: 5,
             preferred_device: None,
+            log_level: LogLevel::Info,
         }
     }
 }

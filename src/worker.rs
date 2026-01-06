@@ -195,7 +195,7 @@ pub fn start_worker(
                     break;
                 }
                 Ok(WorkerCommand::Refresh) => {
-                    info!("Worker forcing refresh.");
+                    debug!("Worker forcing refresh.");
                     // Fall through to update logic immediately
                     force_update = true;
                 }
