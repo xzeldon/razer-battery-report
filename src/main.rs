@@ -1,8 +1,10 @@
 // Hide console window on Windows release builds
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod cli;
 mod config;
 mod icon;
+mod logger;
 mod notification;
 mod state;
 mod tray;
@@ -10,7 +12,7 @@ mod worker;
 
 use std::{collections::HashMap, thread, time::Duration};
 
-use log::{error, info};
+use log::{debug, error, info};
 use razer_battery_report::{self as librazer};
 
 use config::AppConfig;
@@ -28,29 +30,53 @@ pub enum AppEvent {
 }
 
 fn main() -> anyhow::Result<()> {
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
+    // This allows the GUI app to print to stdout/stderr if launched from a terminal.
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::System::Console::{AttachConsole, ATTACH_PARENT_PROCESS};
+        // We ignore the error.
+        // If it fails (e.g. launched via double-click in Explorer), we just continue as a GUI app.
+        // If it succeeds, we become a console app.
+        unsafe {
+            let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+        }
     }
-    pretty_env_logger::init();
+
+    let args = cli::Args::parse();
+
+    // Earyly load config to get log_level
+    let mut config = match AppConfig::load() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            eprintln!("Config error: {}. Using defaults.", e);
+            AppConfig::default()
+        }
+    };
+
+    logger::init(args.log_level, config.log_level, args.log_mode())?;
 
     info!("Starting Razer Battery Report...");
 
-    let mut config = match AppConfig::load() {
-        Ok(cfg) => {
-            if let Err(e) = cfg.save() {
-                error!("Failed to update config file on disk: {}", e);
-            }
-            cfg
-        }
-        Err(e) => {
-            error!("Config error: {}. Using defaults.", e);
-            let cfg = AppConfig::default();
-            if let Err(save_err) = cfg.save() {
-                error!("Failed to save default config: {}", save_err);
-            }
-            cfg
-        }
-    };
+    // Handle CLI
+    #[cfg(target_os = "linux")]
+    if args.print_udev_rules {
+        let mut context = librazer::Razer::new()?;
+        // Refresh isn't strictly necessary for printing static rules,
+        // but we want to ensure context is valid.
+        context.refresh_devices()?;
+        context.print_udev_rules();
+        return Ok(());
+    }
+
+    if args.check {
+        run_diagnostics()?;
+        return Ok(());
+    }
+
+    // Save config to disk
+    if let Err(e) = config.save() {
+        error!("Failed to update config file on disk: {}", e);
+    }
 
     // Load icons
     info!("Load icons...");
@@ -93,7 +119,7 @@ fn main() -> anyhow::Result<()> {
         match event {
             // Battery updates
             tao::event::Event::UserEvent(AppEvent::BatteryUpdate(data)) => {
-                info!("Received update: {:?}", data);
+                debug!("Received update: {:?}", data);
 
                 // Update state first
                 state_manager.process_update(&data, &config);
@@ -180,4 +206,37 @@ fn main() -> anyhow::Result<()> {
             _ => (),
         }
     });
+}
+
+fn run_diagnostics() -> anyhow::Result<()> {
+    info!("Running diagnostics...");
+    let mut context = librazer::Razer::new()?;
+    context.refresh_devices()?;
+
+    let devices = context.get_connected_devices();
+
+    if devices.is_empty() {
+        info!("No Razer devices found via HID API.");
+        return Ok(());
+    }
+
+    info!("Found {} device(s):", devices.len());
+    for device in devices {
+        info!(
+            "- Device: {} (PID: 0x{:04X})",
+            device.device_type(),
+            device.product_id
+        );
+        info!("  Path: {}", device.path);
+
+        match device.open(&context) {
+            Ok(handle) => match handle.get_battery_level() {
+                Ok(status) => info!("  Status: {}", status),
+                Err(e) => error!("  Failed to get status: {}", e),
+            },
+            Err(e) => error!("  Failed to open device: {}", e),
+        }
+    }
+
+    Ok(())
 }

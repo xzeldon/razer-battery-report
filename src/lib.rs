@@ -22,6 +22,7 @@
 use hidapi::HidApi;
 use hidapi::HidDevice;
 use hidapi::HidError;
+use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error;
@@ -103,14 +104,14 @@ impl Razer {
             .collect();
 
         if device_ids.is_empty() {
-            println!("No Razer devices currently connected.");
+            eprintln!("No Razer devices currently connected.");
             return;
         }
 
-        println!("# Razer Device Permissions");
-        println!("# Save this to /etc/udev/rules.d/99-razer.rules");
-        println!("# Then run: sudo udevadm control --reload-rules && sudo udevadm trigger");
-        println!();
+        eprintln!("# Razer Device Permissions");
+        eprintln!("# Save this to /etc/udev/rules.d/99-razer.rules");
+        eprintln!("# Then run: sudo udevadm control --reload-rules && sudo udevadm trigger");
+        eprintln!();
 
         // Print rules for each connected device
         for device in self.get_connected_devices() {
@@ -541,7 +542,7 @@ fn create_report(
     buf.push(0x00); // reserved
 
     #[cfg(debug_assertions)]
-    println!("Created report buffer: {:02X?}", &buf);
+    debug!("Created report buffer: {:02X?}", &buf);
 
     buf
 }
@@ -559,7 +560,7 @@ fn send_command(
     send_buf.extend(&report);
 
     #[cfg(debug_assertions)]
-    println!("Sending command buffer: {:02X?}", &send_buf);
+    debug!("Sending command buffer: {:02X?}", &send_buf);
 
     // Try to send the command
     for attempt in 0..MAX_RETRIES {
