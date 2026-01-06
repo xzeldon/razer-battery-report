@@ -22,7 +22,6 @@
 use hidapi::HidApi;
 use hidapi::HidDevice;
 use hidapi::HidError;
-use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error;
@@ -542,7 +541,7 @@ fn create_report(
     buf.push(0x00); // reserved
 
     #[cfg(debug_assertions)]
-    debug!("Created report buffer: {:02X?}", &buf);
+    log::debug!("Created report buffer: {:02X?}", &buf);
 
     buf
 }
@@ -560,7 +559,7 @@ fn send_command(
     send_buf.extend(&report);
 
     #[cfg(debug_assertions)]
-    debug!("Sending command buffer: {:02X?}", &send_buf);
+    log::debug!("Sending command buffer: {:02X?}", &send_buf);
 
     // Try to send the command
     for attempt in 0..MAX_RETRIES {
