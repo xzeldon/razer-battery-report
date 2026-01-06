@@ -66,6 +66,25 @@ To build, you must have [Rust](https://www.rust-lang.org/) and
 
 > You can grab `pid` and other data from the [openrazer](https://github.com/openrazer/openrazer/blob/352d13c416f42e572016c02fd10a52fc9848644a/driver/razermouse_driver.h#L9)
 
+## How it works
+
+**Architecture**
+The application runs on two threads:
+1.  **Main Thread:** System tray, menu interactions, and OS event loop.
+2.  **Worker Thread:** HID communication and device state management.
+
+**Polling Strategy**
+*   **Hotplug Check (default 3s):** Lightweight USB bus scan. Detects connections/disconnections without waking the device. Changes trigger an immediate update.
+*   **Battery Query (default 60s):** Sends HID reports to fetch the actual battery level.
+*   **State Caching:** If a device sleeps (command timeout), the app retains the *last known value*. This prevents "Device Connected" notification when mouse wakes up from sleep.
+
+**Logic**
+*   **Notifications:** Triggered only on specific state transitions (e.g., Discharging → Charging, Level < Threshold).
+*   **Persistence:** The active device selection is saved to `config.toml`. If the preferred device is unavailable, the app falls back to the first detected device.
+
+**Configuration**
+*   Stored in `config.toml` following standard OS paths (XDG on Linux, AppData on Windows).
+
 ## Todo
 
 - [x] Tray Applet
