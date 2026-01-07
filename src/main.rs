@@ -29,7 +29,6 @@ use crate::{app::RazerApp, icon::IconSet};
 #[derive(Debug)]
 pub enum AppEvent {
     BatteryUpdate(Vec<(String, librazer::DeviceType, librazer::BatteryStatus)>),
-    #[allow(dead_code)]
     MenuEvent(tray_icon::menu::MenuEvent),
 }
 
@@ -137,7 +136,7 @@ fn main() -> anyhow::Result<()> {
                     *control_flow = ControlFlow::Exit;
                 }
             }
-            // System shitdown/close
+            // System shutdown/close
             Event::WindowEvent {
                 event: tao::event::WindowEvent::CloseRequested,
                 ..
