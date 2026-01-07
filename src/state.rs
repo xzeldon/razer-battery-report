@@ -8,7 +8,7 @@ use std::collections::HashMap;
 /// Stores the last known battery status for each device and compares it with
 /// new updates to trigger notifications.
 pub struct DeviceStateManager {
-    last_device_states: HashMap<librazer::DeviceType, librazer::BatteryStatus>,
+    last_device_states: HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)>,
 }
 
 impl DeviceStateManager {
@@ -24,17 +24,21 @@ impl DeviceStateManager {
     /// notifications via `Notifier`.
     pub fn process_update(
         &mut self,
-        current_data: &[(librazer::DeviceType, librazer::BatteryStatus)],
+        current_data: &[(String, librazer::DeviceType, librazer::BatteryStatus)],
         config: &AppConfig,
     ) {
         // Convert input Vec to HashMap for efficient lookup
-        let current_devices: HashMap<_, _> = current_data.iter().cloned().collect();
+        let current_devices: HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)> =
+            current_data
+                .iter()
+                .map(|(path, device_type, status)| (path.clone(), (*device_type, *status)))
+                .collect();
 
         // Check for Disconnected devices
         self.last_device_states.retain(|device_type, _| {
             if !current_devices.contains_key(device_type) {
                 if config.notifications_enabled {
-                    Notifier::send("Device Disconnected", &format!("{}", device_type));
+                    Notifier::send("Device Disconnected", &device_type.to_string());
                 }
                 return false; // Remove from map
             }
@@ -42,8 +46,8 @@ impl DeviceStateManager {
         });
 
         // Check for Connected or Updated devices
-        for (device_type, new_status) in &current_devices {
-            if let Some(old_status) = self.last_device_states.get(device_type) {
+        for (path, (device_type, new_status)) in &current_devices {
+            if let Some((_, old_status)) = self.last_device_states.get(path) {
                 // Device exists, check logic for changes
                 if config.notifications_enabled {
                     self.check_state_changes(device_type, old_status, new_status, config);

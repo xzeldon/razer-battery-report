@@ -1,6 +1,6 @@
 use log::{debug, error, info};
 use std::collections::{HashMap, HashSet};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 use tao::event_loop::EventLoopProxy;
@@ -22,8 +22,8 @@ struct Worker {
     proxy: EventLoopProxy<AppEvent>,
     polling_interval: Duration,
     last_battery_query: Instant,
-    known_devices_signature: HashSet<(u16, u16)>,
-    last_known_levels: HashMap<librazer::DeviceType, librazer::BatteryStatus>,
+    known_devices_signature: HashSet<String>,
+    last_known_levels: HashMap<String, librazer::BatteryStatus>,
 }
 
 impl Worker {
@@ -58,10 +58,7 @@ impl Worker {
         }
 
         let devices = self.context.get_connected_devices();
-        let current_signature: HashSet<(u16, u16)> = devices
-            .iter()
-            .map(|d| (d.vendor_id, d.product_id))
-            .collect();
+        let current_signature: HashSet<String> = devices.iter().map(|d| d.path.clone()).collect();
 
         if current_signature != self.known_devices_signature {
             info!("Device list changed (Hotplug detected).");
@@ -75,26 +72,27 @@ impl Worker {
     /// Performs the slow operation of querying battery status for all devices
     fn update_batteries(&mut self) {
         let devices = self.context.get_connected_devices();
-        let mut updates = Vec::new();
+        let mut updates: Vec<(String, librazer::DeviceType, librazer::BatteryStatus)> = Vec::new();
+        let mut current_paths = HashSet::new();
 
         for device in devices {
+            current_paths.insert(device.path.clone());
             let result = process_device(&self.context, &device);
 
             match result {
-                Some((dev_type, status)) => {
-                    self.last_known_levels.insert(dev_type, status);
-                    updates.push((dev_type, status));
+                Some((device_type, status)) => {
+                    self.last_known_levels.insert(device.path.clone(), status);
+                    updates.push((device.path.clone(), device_type, status));
                 }
                 None => {
                     // This keeps the device visible in the tray even if it sleeps.
-                    if let Some(&cached_status) = self.last_known_levels.get(&device.device_type())
-                    {
+                    if let Some(&cached_status) = self.last_known_levels.get(&device.path) {
                         info!(
-                            "Device {:?} is not responding (Sleep/Off). Using cached status: {}",
+                            "Device {:?} ({}) is not responding. Using cached status.",
                             device.device_type(),
-                            cached_status
+                            device.path
                         );
-                        updates.push((device.device_type(), cached_status));
+                        updates.push((device.path.clone(), device.device_type(), cached_status));
                     }
                 }
             }
@@ -113,6 +111,7 @@ impl Worker {
             let fake_level = (secs % 100) as u8;
 
             updates.push((
+                "/dev/null".to_string(),
                 DeviceType::DummyDevice,
                 BatteryStatus::Level(BatteryLevel::new(fake_level)),
             ));
@@ -120,6 +119,8 @@ impl Worker {
 
         if !updates.is_empty() {
             let _ = self.proxy.send_event(AppEvent::BatteryUpdate(updates));
+        } else {
+            let _ = self.proxy.send_event(AppEvent::BatteryUpdate(vec![]));
         }
 
         self.last_battery_query = Instant::now();
@@ -185,11 +186,15 @@ pub fn start_worker(
 
         let hotplug_check_interval = Duration::from_secs(3);
 
+        info!("Performing initial device scan...");
+        worker.check_hotplug();
+        worker.update_batteries();
+
         loop {
             let mut force_update = false;
 
-            // Check for incoming commands (Non-blocking)
-            match rx.try_recv() {
+            // Check for incoming commands
+            match rx.recv_timeout(hotplug_check_interval) {
                 Ok(WorkerCommand::Quit) => {
                     info!("Worker received Quit command. Shutting down.");
                     break;
@@ -200,9 +205,12 @@ pub fn start_worker(
                     force_update = true;
                 }
                 // No commands, proceed to normal polling
-                Err(mpsc::TryRecvError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => {}
                 // The main thread died?
-                Err(mpsc::TryRecvError::Empty) => {}
+                Err(RecvTimeoutError::Disconnected) => {
+                    error!("Worker channel disconnected. Main thread likely exited.");
+                    break;
+                }
             }
 
             // Check for Hardware Changes (Hotplug)
@@ -215,8 +223,6 @@ pub fn start_worker(
             if force_update || worker.is_time_for_routine_update() {
                 worker.update_batteries();
             }
-
-            thread::sleep(hotplug_check_interval);
         }
     });
 

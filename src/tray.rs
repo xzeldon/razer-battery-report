@@ -13,67 +13,88 @@ use tray_icon::{
 pub struct AppTray {
     tray_icon: Option<TrayIcon>,
     tray_menu: Menu,
-    device_items: HashMap<librazer::DeviceType, CheckMenuItem>,
-    pub quit_item: MenuItem,
+    device_items: HashMap<String, CheckMenuItem>,
+    quit_item: MenuItem,
 }
 
 impl AppTray {
-    /// Creates the tray icon and menu.
-    pub fn new(icons: &IconSet) -> anyhow::Result<Self> {
+    pub fn new() -> anyhow::Result<Self> {
         let tray_menu = Menu::new();
         tray_menu.append(&PredefinedMenuItem::separator())?;
+
         let quit_item = MenuItem::new("Exit", true, None);
-        // TODO: Add Settings, etc.
         tray_menu.append(&quit_item)?;
 
-        let tray_icon = TrayIconBuilder::new()
-            .with_menu(Box::new(tray_menu.clone()))
-            .with_tooltip("Razer Battery Report: Initializing...")
-            .with_icon(icons.white.clone())
-            .build()
-            .context("Failed to build tray icon")?;
-
         Ok(Self {
-            tray_icon: Some(tray_icon),
+            tray_icon: None,
             tray_menu,
             device_items: HashMap::new(),
             quit_item,
         })
     }
 
-    /// Updates the tray icon, tooltip, and menu based on the device list and active selection.
+    /// Initializes the actual system tray icon.
+    /// Must be called after the Event Loop has started.
+    pub fn init_tray_icon(&mut self, icons: &IconSet) -> anyhow::Result<()> {
+        if self.tray_icon.is_some() {
+            return Ok(());
+        }
+
+        let tray_icon = TrayIconBuilder::new()
+            .with_menu(Box::new(self.tray_menu.clone()))
+            .with_tooltip("Razer Battery Report: Initializing...")
+            .with_icon(icons.white.clone())
+            .build()
+            .context("Failed to build tray icon")?;
+
+        self.tray_icon = Some(tray_icon);
+        Ok(())
+    }
+
+    pub fn is_quit_event(&self, event_id: &str) -> bool {
+        self.quit_item.id() == event_id
+    }
+
+    pub fn set_no_devices_state(&mut self, icons: &IconSet) {
+        if let Some(tray) = self.tray_icon.as_mut() {
+            let _ = tray.set_tooltip(Some("No Razer devices connected".to_string()));
+            let _ = tray.set_icon(Some(icons.white.clone()));
+        }
+    }
+
+    /// Updates the tray icon, tooltip, and menu based on the device list.
     pub fn update(
         &mut self,
-        devices_status: &HashMap<librazer::DeviceType, librazer::BatteryStatus>,
-        active_device: &librazer::DeviceType,
+        devices_status: &HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)>,
+        active_device_path: &str,
         icons: &IconSet,
         low_threshold: u8,
         critical_threshold: u8,
     ) {
         self.sync_menu_items(devices_status);
 
-        // Update radio buttons in menu and tooltip text
-        for (device_type, item) in &self.device_items {
-            let is_active = device_type == active_device;
-            // Ensure only the active item is checked
+        // Update radio buttons
+        for (path, item) in &self.device_items {
+            let is_active = path == active_device_path;
             if item.is_checked() != is_active {
                 item.set_checked(is_active);
             }
 
-            // Update text to include current percentage
-            if let Some(status) = devices_status.get(device_type) {
-                item.set_text(format!("{}  [{}]", device_type, status));
+            if let Some((dtype, status)) = devices_status.get(path) {
+                item.set_text(format!("{}  [{}]", dtype, status));
             }
         }
 
+        // Update Icon and Tooltip
         if let Some(tray) = self.tray_icon.as_mut() {
-            if let Some(status) = devices_status.get(active_device) {
+            if let Some((dtype, status)) = devices_status.get(active_device_path) {
                 let new_icon = icons.get_icon(status, low_threshold, critical_threshold);
+
                 if let Err(e) = tray.set_icon(Some(new_icon.clone())) {
                     warn!("Failed to update tray icon: {}", e);
                 }
 
-                let tooltip = format!("{}: {}", active_device, status);
+                let tooltip = format!("{}: {}", dtype, status);
                 if let Err(e) = tray.set_tooltip(Some(tooltip)) {
                     warn!("Failed to update tooltip: {}", e);
                 }
@@ -84,40 +105,32 @@ impl AppTray {
     /// Helper to add/remove menu items dynamically
     fn sync_menu_items(
         &mut self,
-        devices: &HashMap<librazer::DeviceType, librazer::BatteryStatus>,
+        devices: &HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)>,
     ) {
         // Remove items for devices that are gone
-        self.device_items.retain(|device_type, item| {
-            if !devices.contains_key(device_type) {
-                // Remove from the UI
-                if let Err(e) = self.tray_menu.remove(item) {
-                    warn!("Failed to remove menu item: {}", e);
-                }
-                // Remove from HashMap
+        self.device_items.retain(|path, item| {
+            if !devices.contains_key(path) {
+                let _ = self.tray_menu.remove(item);
                 return false;
             }
             true
         });
 
         // Add items for new devices
-        for device_type in devices.keys() {
-            if !self.device_items.contains_key(device_type) {
-                let item = CheckMenuItem::new(format!("{}", device_type), true, false, None);
-
-                if let Err(e) = self.tray_menu.prepend(&item) {
-                    warn!("Failed to add menu item: {}", e);
-                } else {
-                    self.device_items.insert(*device_type, item);
-                }
+        for (path, (dtype, _)) in devices {
+            if !self.device_items.contains_key(path) {
+                let item = CheckMenuItem::new(format!("{}", dtype), true, false, None);
+                let _ = self.tray_menu.prepend(&item);
+                self.device_items.insert(path.clone(), item);
             }
         }
     }
 
     /// Checks if a menu event corresponds to one of the device selection items.
-    pub fn handle_menu_click(&self, event_id: &str) -> Option<librazer::DeviceType> {
-        for (device_type, item) in &self.device_items {
+    pub fn handle_menu_click(&self, event_id: &str) -> Option<String> {
+        for (path, item) in &self.device_items {
             if item.id() == event_id {
-                return Some(*device_type);
+                return Some(path.clone());
             }
         }
         None
