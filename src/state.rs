@@ -35,8 +35,8 @@ impl DeviceStateManager {
                 .collect();
 
         // Check for Disconnected devices
-        self.last_device_states.retain(|device_type, _| {
-            if !current_devices.contains_key(device_type) {
+        self.last_device_states.retain(|path, (device_type, _)| {
+            if !current_devices.contains_key(path) {
                 if config.notifications_enabled {
                     Notifier::send("Device Disconnected", &device_type.to_string());
                 }

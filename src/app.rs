@@ -109,6 +109,27 @@ impl RazerApp {
 
     /// Logic to determine which device should be shown in the tray icon.
     fn ensure_active_device_validity(&mut self) {
+        // Always try to switch to Preferred Device if it becomes available.
+        // This handles the case where we fallback to a secondary device,
+        // but the preffered device just reconnected.
+        if let Some(preferred_device) = self.config.preferred_device {
+            if let Some((path, _)) = self
+                .last_known_status
+                .iter()
+                .find(|(_, (device_type, _))| *device_type == preferred_device)
+            {
+                if self.active_device_path.as_ref() != Some(path) {
+                    self.active_device_path = Some(path.clone());
+                    info!(
+                        "Auto-switching to preferred device: {} ({})",
+                        preferred_device, path
+                    );
+                }
+                // We found preferred device, no need to run fallback.
+                return;
+            }
+        }
+
         let is_valid = self
             .active_device_path
             .as_ref()
