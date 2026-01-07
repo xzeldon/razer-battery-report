@@ -99,11 +99,12 @@ impl Razer {
         // Collect unique (vendor_id, product_id) pairs from connected devices
         let device_ids: HashSet<_> = self
             .get_connected_devices()
+            .into_iter()
             .map(|device| (device.vendor_id, device.product_id))
             .collect();
 
         if device_ids.is_empty() {
-            eprintln!("No Razer devices currently connected.");
+            log::info!("No Razer devices currently connected.");
             return;
         }
 
