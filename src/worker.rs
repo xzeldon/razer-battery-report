@@ -87,7 +87,7 @@ impl Worker {
                 None => {
                     // This keeps the device visible in the tray even if it sleeps.
                     if let Some(&cached_status) = self.last_known_levels.get(&device.path) {
-                        info!(
+                        debug!(
                             "Device {:?} ({}) is not responding. Using cached status.",
                             device.device_type(),
                             device.path
