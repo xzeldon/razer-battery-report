@@ -7,11 +7,13 @@ mod config;
 mod icon;
 mod logger;
 mod notification;
+#[cfg(target_os = "linux")]
+mod platform_tray;
 mod state;
 mod tray;
 mod worker;
 
-use std::{thread, time::Duration};
+use std::time::Duration;
 
 use log::{debug, error, info};
 use razer_battery_report::{self as librazer};
@@ -21,7 +23,6 @@ use tao::{
     event::{Event, StartCause},
     event_loop::{ControlFlow, EventLoopBuilder},
 };
-use tray_icon::menu::MenuEvent;
 
 use crate::{app::RazerApp, icon::IconSet};
 
@@ -29,7 +30,10 @@ use crate::{app::RazerApp, icon::IconSet};
 #[derive(Debug)]
 pub enum AppEvent {
     BatteryUpdate(Vec<(String, librazer::DeviceType, librazer::BatteryStatus)>),
+    #[cfg(not(target_os = "linux"))]
     MenuEvent(tray_icon::menu::MenuEvent),
+    #[cfg(target_os = "linux")]
+    KsniCommand(worker::WorkerCommand),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -99,22 +103,30 @@ fn main() -> anyhow::Result<()> {
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
-    // Spawn Menu listener thread
+    // Spawn Menu listener thread (Windows/macOS only)
     // This bridges tray-icon's global channel to tao Event loop
-    let menu_proxy = proxy.clone();
-    thread::spawn(move || {
-        while let Ok(event) = MenuEvent::receiver().recv() {
-            let _ = menu_proxy.send_event(AppEvent::MenuEvent(event));
-        }
-    });
+    #[cfg(not(target_os = "linux"))]
+    {
+        use tray_icon::menu::MenuEvent;
+        let menu_proxy = proxy.clone();
+        thread::spawn(move || {
+            while let Ok(event) = MenuEvent::receiver().recv() {
+                let _ = menu_proxy.send_event(AppEvent::MenuEvent(event));
+            }
+        });
+    }
 
     // Start Worker Thread
     debug!("Starting worker thread...");
     let polling_interval = Duration::from_secs(config.polling_interval_secs);
-    let worker_tx = worker::start_worker(proxy, polling_interval);
+    let worker_tx = worker::start_worker(proxy.clone(), polling_interval);
 
     // Initialize Application Controller
     let mut app = RazerApp::new(config, icons, worker_tx)?;
+
+    // Spawn ksni command receiver thread (Linux only)
+    #[cfg(target_os = "linux")]
+    app.spawn_ksni_command_receiver(proxy.clone());
 
     debug!("Entering main event loop.");
 
@@ -130,9 +142,17 @@ fn main() -> anyhow::Result<()> {
             Event::UserEvent(AppEvent::BatteryUpdate(data)) => {
                 app.on_battery_update(data);
             }
-            // Menu Interaction
+            // Menu Interaction (Windows/macOS only)
+            #[cfg(not(target_os = "linux"))]
             Event::UserEvent(AppEvent::MenuEvent(menu_event)) => {
                 if app.on_menu_event(menu_event) {
+                    *control_flow = ControlFlow::Exit;
+                }
+            }
+            // Ksni commands (Linux only)
+            #[cfg(target_os = "linux")]
+            Event::UserEvent(AppEvent::KsniCommand(cmd)) => {
+                if app.on_ksni_command(cmd) {
                     *control_flow = ControlFlow::Exit;
                 }
             }

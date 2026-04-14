@@ -3,6 +3,8 @@ use std::sync::mpsc::Sender;
 
 use log::{debug, error, info};
 use razer_battery_report as librazer;
+
+#[cfg(not(target_os = "linux"))]
 use tray_icon::menu::MenuEvent;
 
 use crate::config::AppConfig;
@@ -29,7 +31,7 @@ impl RazerApp {
         worker_tx: Sender<WorkerCommand>,
     ) -> anyhow::Result<Self> {
         // Init only tray menus, but not the icon yet (requires EventLoop).
-        let tray = AppTray::new()?;
+        let tray = AppTray::new(config.autostart_enabled, config.notifications_enabled)?;
 
         Ok(Self {
             config,
@@ -66,8 +68,9 @@ impl RazerApp {
         self.update_tray_view();
     }
 
-    /// Handles clicks on the tray menu.
+    /// Handles clicks on the tray menu (Windows/macOS only).
     /// Returns `true` if the application should exit.
+    #[cfg(not(target_os = "linux"))]
     pub fn on_menu_event(&mut self, event: MenuEvent) -> bool {
         // Check Quit
         if self.tray.is_quit_event(event.id.as_ref()) {
@@ -83,9 +86,63 @@ impl RazerApp {
         false // Do not exit
     }
 
+    /// Handles ksni commands from the Linux tray (Linux only).
+    /// Returns `true` if the application should exit.
+    #[cfg(target_os = "linux")]
+    pub fn on_ksni_command(&mut self, cmd: WorkerCommand) -> bool {
+        match cmd {
+            WorkerCommand::Quit => {
+                info!("Exit requested via ksni tray menu.");
+                let _ = self.worker_tx.send(WorkerCommand::Quit);
+                return true;
+            }
+            WorkerCommand::SelectDevice(path) => {
+                self.set_active_device(path);
+            }
+            WorkerCommand::ToggleAutostart(enabled) => {
+                info!("Autostart toggled: {}", enabled);
+                self.config.autostart_enabled = enabled;
+                if let Err(e) = self.config.save() {
+                    error!("Failed to save config: {}", e);
+                }
+                self.tray.set_autostart(enabled);
+            }
+            WorkerCommand::ToggleNotifications(enabled) => {
+                info!("Notifications toggled: {}", enabled);
+                self.config.notifications_enabled = enabled;
+                if let Err(e) = self.config.save() {
+                    error!("Failed to save config: {}", e);
+                }
+                self.tray.set_notifications(enabled);
+            }
+            WorkerCommand::Restart => {
+                info!("Restart requested.");
+                // TODO: Implement graceful restart
+            }
+            WorkerCommand::ShowAbout => {
+                info!("About dialog requested.");
+                // TODO: Show about dialog
+            }
+            WorkerCommand::Refresh => {
+                let _ = self.worker_tx.send(WorkerCommand::Refresh);
+            }
+        }
+
+        false // Do not exit
+    }
+
     /// Called when the OS requests the app to close.
     pub fn on_shutdown(&self) {
         let _ = self.worker_tx.send(WorkerCommand::Quit);
+    }
+
+    /// Spawns the ksni command receiver thread (Linux only).
+    #[cfg(target_os = "linux")]
+    pub fn spawn_ksni_command_receiver(
+        &mut self,
+        proxy: tao::event_loop::EventLoopProxy<crate::AppEvent>,
+    ) {
+        self.tray.spawn_command_receiver(proxy);
     }
 
     fn set_active_device(&mut self, path: String) {
