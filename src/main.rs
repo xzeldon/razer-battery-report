@@ -7,8 +7,6 @@ mod config;
 mod icon;
 mod logger;
 mod notification;
-#[cfg(target_os = "linux")]
-mod platform_tray;
 mod state;
 mod tray;
 mod worker;
@@ -32,8 +30,7 @@ pub enum AppEvent {
     BatteryUpdate(Vec<(String, librazer::DeviceType, librazer::BatteryStatus)>),
     #[cfg(not(target_os = "linux"))]
     MenuEvent(tray_icon::menu::MenuEvent),
-    #[cfg(target_os = "linux")]
-    KsniCommand(worker::WorkerCommand),
+    TrayEvent(tray::TrayEvent),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -107,6 +104,7 @@ fn main() -> anyhow::Result<()> {
     // This bridges tray-icon's global channel to tao Event loop
     #[cfg(not(target_os = "linux"))]
     {
+        use std::thread;
         use tray_icon::menu::MenuEvent;
         let menu_proxy = proxy.clone();
         thread::spawn(move || {
@@ -124,9 +122,8 @@ fn main() -> anyhow::Result<()> {
     // Initialize Application Controller
     let mut app = RazerApp::new(config, icons, worker_tx)?;
 
-    // Spawn ksni command receiver thread (Linux only)
-    #[cfg(target_os = "linux")]
-    app.spawn_ksni_command_receiver(proxy.clone());
+    // Spawn tray command receiver thread
+    app.spawn_command_receiver(proxy.clone());
 
     debug!("Entering main event loop.");
 
@@ -149,10 +146,9 @@ fn main() -> anyhow::Result<()> {
                     *control_flow = ControlFlow::Exit;
                 }
             }
-            // Ksni commands (Linux only)
-            #[cfg(target_os = "linux")]
-            Event::UserEvent(AppEvent::KsniCommand(cmd)) => {
-                if app.on_ksni_command(cmd) {
+            // Tray Events (all platforms)
+            Event::UserEvent(AppEvent::TrayEvent(event)) => {
+                if app.on_tray_event(event) {
                     *control_flow = ControlFlow::Exit;
                 }
             }

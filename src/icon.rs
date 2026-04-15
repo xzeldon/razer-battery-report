@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "linux")]
 use anyhow::Context;
 
 use razer_battery_report as librazer;
@@ -14,15 +14,14 @@ pub struct IconSet {
     pub yellow: Icon,
     #[cfg(not(target_os = "linux"))]
     pub red: Icon,
-    // TODO: Charging icon?
 
-    /// Raw PNG bytes for Linux ksni conversion (ARGB32).
+    /// Pre-parsed ksni::Icon (ARGB32) for Linux.
     #[cfg(target_os = "linux")]
-    pub white_png: &'static [u8],
+    pub white: ksni::Icon,
     #[cfg(target_os = "linux")]
-    pub yellow_png: &'static [u8],
+    pub yellow: ksni::Icon,
     #[cfg(target_os = "linux")]
-    pub red_png: &'static [u8],
+    pub red: ksni::Icon,
 }
 
 impl IconSet {
@@ -44,26 +43,23 @@ impl IconSet {
         #[cfg(target_os = "linux")]
         {
             Ok(Self {
-                white_png,
-                yellow_png,
-                red_png,
+                white: parse_to_ksni(white_png).context("Failed to parse white icon")?,
+                yellow: parse_to_ksni(yellow_png).context("Failed to parse yellow icon")?,
+                red: parse_to_ksni(red_png).context("Failed to parse red icon")?,
             })
         }
     }
 
-    /// Select icon based on battery status (Windows/macOS only).
-    #[cfg(not(target_os = "linux"))]
+    /// Select icon based on battery status (Linux).
+    #[cfg(target_os = "linux")]
     pub fn get_icon(
         &self,
         status: &librazer::BatteryStatus,
         low_threshold: u8,
         critical_threshold: u8,
-    ) -> &Icon {
+    ) -> &ksni::Icon {
         match status {
-            // Charging always shows white for now
-            // TODO: Charging icon?
             librazer::BatteryStatus::Charging(_) => &self.white,
-
             librazer::BatteryStatus::Level(level) => {
                 let val = level.value();
                 if val <= critical_threshold {
@@ -74,34 +70,52 @@ impl IconSet {
                     &self.white
                 }
             }
-
             librazer::BatteryStatus::Unknown => &self.white,
         }
     }
 
-    /// Get raw PNG bytes for the icon matching the current status (Linux only).
-    #[cfg(target_os = "linux")]
-    pub fn get_icon_png(
+    /// Select icon based on battery status (Windows/macOS).
+    #[cfg(not(target_os = "linux"))]
+    pub fn get_icon(
         &self,
         status: &librazer::BatteryStatus,
         low_threshold: u8,
         critical_threshold: u8,
-    ) -> &'static [u8] {
+    ) -> &Icon {
         match status {
-            librazer::BatteryStatus::Charging(_) => self.white_png,
+            librazer::BatteryStatus::Charging(_) => &self.white,
             librazer::BatteryStatus::Level(level) => {
                 let val = level.value();
                 if val <= critical_threshold {
-                    self.red_png
+                    &self.red
                 } else if val <= low_threshold {
-                    self.yellow_png
+                    &self.yellow
                 } else {
-                    self.white_png
+                    &self.white
                 }
             }
-            librazer::BatteryStatus::Unknown => self.white_png,
+            librazer::BatteryStatus::Unknown => &self.white,
         }
     }
+}
+
+/// Converts PNG bytes to `ksni::Icon` (ARGB32 format).
+#[cfg(target_os = "linux")]
+fn parse_to_ksni(png_bytes: &[u8]) -> anyhow::Result<ksni::Icon> {
+    let img = image::load_from_memory(png_bytes)?.into_rgba8();
+    let (width, height) = img.dimensions();
+    let mut data = img.into_vec();
+
+    // Convert RGBA to ARGB32 (network byte order)
+    for pixel in data.chunks_exact_mut(4) {
+        pixel.rotate_right(1); // R,G,B,A -> A,R,G,B
+    }
+
+    Ok(ksni::Icon {
+        width: width as i32,
+        height: height as i32,
+        data,
+    })
 }
 
 /// Helper to parse PNG bytes into a Tray Icon (Windows/macOS only).

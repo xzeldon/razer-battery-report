@@ -15,21 +15,6 @@ pub enum WorkerCommand {
     Refresh,
     /// Stop the worker loop.
     Quit,
-    /// User selected a device from the tray menu (Linux only).
-    #[cfg(target_os = "linux")]
-    SelectDevice(String),
-    /// Toggle autostart setting (Linux only).
-    #[cfg(target_os = "linux")]
-    ToggleAutostart(bool),
-    /// Toggle notifications setting (Linux only).
-    #[cfg(target_os = "linux")]
-    ToggleNotifications(bool),
-    /// Restart the application (Linux only).
-    #[cfg(target_os = "linux")]
-    Restart,
-    /// Show about dialog (Linux only).
-    #[cfg(target_os = "linux")]
-    ShowAbout,
 }
 
 /// The state and logic of the worker.
@@ -195,8 +180,6 @@ pub fn start_worker(
 
         let mut worker = match Worker::new(proxy, polling_interval) {
             Some(m) => m,
-            // TODO: Maybe try to implement something like AppEvent::CriticalError and send it to the UI?
-            // For now, we return, which kills the worker (but not the main UI).
             None => return,
         };
 
@@ -219,32 +202,6 @@ pub fn start_worker(
                     debug!("Worker forcing refresh.");
                     // Fall through to update logic immediately
                     force_update = true;
-                }
-                #[cfg(target_os = "linux")]
-                Ok(WorkerCommand::SelectDevice(path)) => {
-                    debug!("Worker received SelectDevice command for: {}", path);
-                    // Force immediate refresh to reflect selection
-                    force_update = true;
-                }
-                #[cfg(target_os = "linux")]
-                Ok(WorkerCommand::ToggleAutostart(enabled)) => {
-                    info!("Autostart toggled: {}", enabled);
-                    // TODO: Actually configure autostart via auto-launch crate
-                }
-                #[cfg(target_os = "linux")]
-                Ok(WorkerCommand::ToggleNotifications(enabled)) => {
-                    info!("Notifications toggled: {}", enabled);
-                    // TODO: Persist to config
-                }
-                #[cfg(target_os = "linux")]
-                Ok(WorkerCommand::Restart) => {
-                    info!("Restart requested.");
-                    // TODO: Implement graceful restart
-                }
-                #[cfg(target_os = "linux")]
-                Ok(WorkerCommand::ShowAbout) => {
-                    info!("About dialog requested.");
-                    // TODO: Show about dialog
                 }
                 // No commands, proceed to normal polling
                 Err(RecvTimeoutError::Timeout) => {}

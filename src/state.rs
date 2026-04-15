@@ -1,20 +1,27 @@
 use crate::config::AppConfig;
 use crate::notification::Notifier;
 use razer_battery_report as librazer;
-use std::collections::HashMap;
+
+/// The state of a single connected device.
+#[derive(Clone)]
+pub struct DeviceState {
+    pub path: String,
+    pub device_type: librazer::DeviceType,
+    pub status: librazer::BatteryStatus,
+}
 
 /// Manages the state of connected devices to detect changes.
 ///
 /// Stores the last known battery status for each device and compares it with
 /// new updates to trigger notifications.
 pub struct DeviceStateManager {
-    last_device_states: HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)>,
+    last_device_states: Vec<DeviceState>,
 }
 
 impl DeviceStateManager {
     pub fn new() -> Self {
         Self {
-            last_device_states: HashMap::new(),
+            last_device_states: Vec::new(),
         }
     }
 
@@ -27,35 +34,40 @@ impl DeviceStateManager {
         current_data: &[(String, librazer::DeviceType, librazer::BatteryStatus)],
         config: &AppConfig,
     ) {
-        // Convert input Vec to HashMap for efficient lookup
-        let current_devices: HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)> =
-            current_data
-                .iter()
-                .map(|(path, device_type, status)| (path.clone(), (*device_type, *status)))
-                .collect();
+        let current_devices: Vec<DeviceState> = current_data
+            .iter()
+            .map(|(path, device_type, status)| DeviceState {
+                path: path.clone(),
+                device_type: *device_type,
+                status: *status,
+            })
+            .collect();
 
         // Check for Disconnected devices
-        self.last_device_states.retain(|path, (device_type, _)| {
-            if !current_devices.contains_key(path) {
+        self.last_device_states.retain(|prev| {
+            if !current_devices.iter().any(|c| c.path == prev.path) {
                 if config.notifications_enabled {
-                    Notifier::send("Device Disconnected", &device_type.to_string());
+                    Notifier::send("Device Disconnected", &prev.device_type.to_string());
                 }
-                return false; // Remove from map
+                return false;
             }
-            true // Keep in map
+            true
         });
 
         // Check for Connected or Updated devices
-        for (path, (device_type, new_status)) in &current_devices {
-            if let Some((_, old_status)) = self.last_device_states.get(path) {
-                // Device exists, check logic for changes
+        for current in &current_devices {
+            if let Some(prev) = self.last_device_states.iter().find(|p| p.path == current.path) {
                 if config.notifications_enabled {
-                    self.check_state_changes(device_type, old_status, new_status, config);
+                    self.check_state_changes(
+                        &current.device_type,
+                        &prev.status,
+                        &current.status,
+                        config,
+                    );
                 }
             } else {
-                // New device detected
                 if config.notifications_enabled {
-                    Notifier::send("Device Connected", &format!("{}", device_type));
+                    Notifier::send("Device Connected", &format!("{}", current.device_type));
                 }
             }
         }
@@ -75,8 +87,6 @@ impl DeviceStateManager {
         use librazer::BatteryStatus;
 
         match (old, new) {
-            // Event: Started Charging
-            // Level(x) -> Charging(x)
             (BatteryStatus::Level(_), BatteryStatus::Charging(_)) => {
                 Notifier::send(
                     "Charging Started",
@@ -84,8 +94,6 @@ impl DeviceStateManager {
                 );
             }
 
-            // Event: Stopped Charging
-            // Charging(x) -> Level(x)
             (BatteryStatus::Charging(_), BatteryStatus::Level(lvl)) => {
                 if lvl.value() == 100 {
                     Notifier::send(
@@ -100,20 +108,16 @@ impl DeviceStateManager {
                 }
             }
 
-            // Event: Battery Level Dropped
-            // Level(old) -> Level(new)
             (BatteryStatus::Level(old_lvl), BatteryStatus::Level(new_lvl)) => {
-                // Low Battery Threshold
                 if old_lvl.value() > config.low_battery_threshold
                     && new_lvl.value() <= config.low_battery_threshold
                 {
                     Notifier::send(
                         "Low Battery",
-                        &format!("{} is at {}", device_name, new_lvl), // new_lvl Display implies %
+                        &format!("{} is at {}", device_name, new_lvl),
                     );
                 }
 
-                // Critical Battery Threshold
                 if old_lvl.value() > config.critical_battery_threshold
                     && new_lvl.value() <= config.critical_battery_threshold
                 {
@@ -124,7 +128,6 @@ impl DeviceStateManager {
                 }
             }
 
-            // Other transitions (e.g. Unknown -> Level) are ignored to prevent startup spam
             _ => {}
         }
     }

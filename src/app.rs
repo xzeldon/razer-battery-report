@@ -1,16 +1,12 @@
-use std::collections::HashMap;
 use std::sync::mpsc::Sender;
 
 use log::{debug, error, info};
 use razer_battery_report as librazer;
 
-#[cfg(not(target_os = "linux"))]
-use tray_icon::menu::MenuEvent;
-
 use crate::config::AppConfig;
 use crate::icon::IconSet;
-use crate::state::DeviceStateManager;
-use crate::tray::AppTray;
+use crate::state::{DeviceState, DeviceStateManager};
+use crate::tray::{AppTray, TrayEvent};
 use crate::worker::WorkerCommand;
 
 /// The main application controller.
@@ -20,7 +16,7 @@ pub struct RazerApp {
     tray: AppTray,
     state_manager: DeviceStateManager,
     active_device_path: Option<String>,
-    last_known_status: HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)>,
+    last_known_status: Vec<DeviceState>,
     worker_tx: Sender<WorkerCommand>,
 }
 
@@ -39,7 +35,7 @@ impl RazerApp {
             tray,
             state_manager: DeviceStateManager::new(),
             active_device_path: None,
-            last_known_status: HashMap::new(),
+            last_known_status: Vec::new(),
             worker_tx,
         })
     }
@@ -47,7 +43,7 @@ impl RazerApp {
     /// Called when the Event Loop receives StartCause::Init.
     pub fn on_app_init(&mut self) {
         debug!("Initializing UI elements...");
-        if let Err(e) = self.tray.init_tray_icon(&self.icons) {
+        if let Err(e) = self.tray.init(&self.icons) {
             error!("Failed to initialize tray icon: {}", e);
         } else {
             info!("Tray initialized successfully.");
@@ -62,7 +58,11 @@ impl RazerApp {
         self.state_manager.process_update(&data, &self.config);
         self.last_known_status = data
             .into_iter()
-            .map(|(path, dtype, status)| (path, (dtype, status)))
+            .map(|(path, device_type, status)| DeviceState {
+                path,
+                device_type,
+                status,
+            })
             .collect();
         self.ensure_active_device_validity();
         self.update_tray_view();
@@ -71,8 +71,7 @@ impl RazerApp {
     /// Handles clicks on the tray menu (Windows/macOS only).
     /// Returns `true` if the application should exit.
     #[cfg(not(target_os = "linux"))]
-    pub fn on_menu_event(&mut self, event: MenuEvent) -> bool {
-        // Check Quit
+    pub fn on_menu_event(&mut self, event: tray_icon::menu::MenuEvent) -> bool {
         if self.tray.is_quit_event(event.id.as_ref()) {
             info!("Exit requested via tray menu.");
             let _ = self.worker_tx.send(WorkerCommand::Quit);
@@ -83,23 +82,17 @@ impl RazerApp {
             self.set_active_device(selected_path);
         }
 
-        false // Do not exit
+        false
     }
 
-    /// Handles ksni commands from the Linux tray (Linux only).
+    /// Handles tray events from all platforms.
     /// Returns `true` if the application should exit.
-    #[cfg(target_os = "linux")]
-    pub fn on_ksni_command(&mut self, cmd: WorkerCommand) -> bool {
-        match cmd {
-            WorkerCommand::Quit => {
-                info!("Exit requested via ksni tray menu.");
-                let _ = self.worker_tx.send(WorkerCommand::Quit);
-                return true;
-            }
-            WorkerCommand::SelectDevice(path) => {
+    pub fn on_tray_event(&mut self, event: TrayEvent) -> bool {
+        match event {
+            TrayEvent::SelectDevice(path) => {
                 self.set_active_device(path);
             }
-            WorkerCommand::ToggleAutostart(enabled) => {
+            TrayEvent::ToggleAutostart(enabled) => {
                 info!("Autostart toggled: {}", enabled);
                 self.config.autostart_enabled = enabled;
                 if let Err(e) = self.config.save() {
@@ -107,7 +100,7 @@ impl RazerApp {
                 }
                 self.tray.set_autostart(enabled);
             }
-            WorkerCommand::ToggleNotifications(enabled) => {
+            TrayEvent::ToggleNotifications(enabled) => {
                 info!("Notifications toggled: {}", enabled);
                 self.config.notifications_enabled = enabled;
                 if let Err(e) = self.config.save() {
@@ -115,20 +108,22 @@ impl RazerApp {
                 }
                 self.tray.set_notifications(enabled);
             }
-            WorkerCommand::Restart => {
+            TrayEvent::Restart => {
                 info!("Restart requested.");
                 // TODO: Implement graceful restart
             }
-            WorkerCommand::ShowAbout => {
+            TrayEvent::ShowAbout => {
                 info!("About dialog requested.");
                 // TODO: Show about dialog
             }
-            WorkerCommand::Refresh => {
-                let _ = self.worker_tx.send(WorkerCommand::Refresh);
+            TrayEvent::Quit => {
+                info!("Exit requested via tray menu.");
+                let _ = self.worker_tx.send(WorkerCommand::Quit);
+                return true;
             }
         }
 
-        false // Do not exit
+        false
     }
 
     /// Called when the OS requests the app to close.
@@ -136,9 +131,10 @@ impl RazerApp {
         let _ = self.worker_tx.send(WorkerCommand::Quit);
     }
 
-    /// Spawns the ksni command receiver thread (Linux only).
-    #[cfg(target_os = "linux")]
-    pub fn spawn_ksni_command_receiver(
+    /// Spawns the tray command receiver thread.
+    /// On Linux, this receives TrayEvents from ksni callbacks.
+    /// On Windows/macOS, this is a no-op (events use global MenuEvent channel).
+    pub fn spawn_command_receiver(
         &mut self,
         proxy: tao::event_loop::EventLoopProxy<crate::AppEvent>,
     ) {
@@ -146,12 +142,12 @@ impl RazerApp {
     }
 
     fn set_active_device(&mut self, path: String) {
-        if let Some((dtype, _)) = self.last_known_status.get(&path) {
-            info!("User selected device: {} ({})", dtype, path);
-            self.active_device_path = Some(path.clone());
+        if let Some(device) = self.last_known_status.iter().find(|d| d.path == path) {
+            info!("User selected device: {} ({})", device.device_type, device.path);
+            self.active_device_path = Some(device.path.clone());
 
             // Persist config
-            self.config.preferred_device = Some(*dtype);
+            self.config.preferred_device = Some(device.device_type);
             if let Err(e) = self.config.save() {
                 error!("Failed to save config: {}", e);
             }
@@ -167,22 +163,19 @@ impl RazerApp {
     /// Logic to determine which device should be shown in the tray icon.
     fn ensure_active_device_validity(&mut self) {
         // Always try to switch to Preferred Device if it becomes available.
-        // This handles the case where we fallback to a secondary device,
-        // but the preffered device just reconnected.
         if let Some(preferred_device) = self.config.preferred_device {
-            if let Some((path, _)) = self
+            if let Some(device) = self
                 .last_known_status
                 .iter()
-                .find(|(_, (device_type, _))| *device_type == preferred_device)
+                .find(|d| d.device_type == preferred_device)
             {
-                if self.active_device_path.as_ref() != Some(path) {
-                    self.active_device_path = Some(path.clone());
+                if self.active_device_path.as_ref() != Some(&device.path) {
+                    self.active_device_path = Some(device.path.clone());
                     info!(
                         "Auto-switching to preferred device: {} ({})",
-                        preferred_device, path
+                        preferred_device, device.path
                     );
                 }
-                // We found preferred device, no need to run fallback.
                 return;
             }
         }
@@ -190,26 +183,26 @@ impl RazerApp {
         let is_valid = self
             .active_device_path
             .as_ref()
-            .is_some_and(|id| self.last_known_status.contains_key(id));
+            .is_some_and(|id| self.last_known_status.iter().any(|d| d.path == *id));
 
         if !is_valid {
             // Try to restore from config
             if let Some(pref_type) = self.config.preferred_device {
-                if let Some((path, _)) = self
+                if let Some(device) = self
                     .last_known_status
                     .iter()
-                    .find(|(_, (dtype, _))| *dtype == pref_type)
+                    .find(|d| d.device_type == pref_type)
                 {
-                    self.active_device_path = Some(path.clone());
-                    info!("Auto-selected preferred device: {} ({})", pref_type, path);
+                    self.active_device_path = Some(device.path.clone());
+                    info!("Auto-selected preferred device: {} ({})", pref_type, device.path);
                     return;
                 }
             }
 
             // Fallback: pick the first available
-            if let Some((path, (dtype, _))) = self.last_known_status.iter().next() {
-                self.active_device_path = Some(path.clone());
-                info!("Auto-selected active device: {} ({})", dtype, path);
+            if let Some(device) = self.last_known_status.first() {
+                self.active_device_path = Some(device.path.clone());
+                info!("Auto-selected active device: {} ({})", device.device_type, device.path);
             } else {
                 self.active_device_path = None;
             }
