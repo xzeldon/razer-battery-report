@@ -1,5 +1,7 @@
+use std::env;
 use std::sync::mpsc::Sender;
 
+use auto_launch::AutoLaunchBuilder;
 use log::{debug, error, info};
 use razer_battery_report as librazer;
 
@@ -18,6 +20,23 @@ pub struct RazerApp {
     active_device_path: Option<String>,
     last_known_status: Vec<DeviceState>,
     worker_tx: Sender<WorkerCommand>,
+}
+
+/// Configures OS-level autostart for the current executable.
+fn set_autostart(enabled: bool) -> anyhow::Result<()> {
+    let app_path = env::current_exe()?.to_string_lossy().into_owned();
+    let auto = AutoLaunchBuilder::new()
+        .set_app_name("razer-battery-report")
+        .set_app_path(&app_path)
+        .set_use_launch_agent(true)
+        .build()?;
+
+    if enabled {
+        auto.enable()?;
+    } else {
+        auto.disable()?;
+    }
+    Ok(())
 }
 
 impl RazerApp {
@@ -47,6 +66,12 @@ impl RazerApp {
             error!("Failed to initialize tray icon: {}", e);
         } else {
             info!("Tray initialized successfully.");
+        }
+
+        if self.config.autostart_enabled {
+            if let Err(e) = set_autostart(true) {
+                error!("Failed to configure OS autostart on startup: {}", e);
+            }
         }
     }
 
@@ -99,6 +124,9 @@ impl RazerApp {
                     error!("Failed to save config: {}", e);
                 }
                 self.tray.set_autostart(enabled);
+                if let Err(e) = set_autostart(enabled) {
+                    error!("Failed to configure OS autostart: {}", e);
+                }
             }
             TrayEvent::ToggleNotifications(enabled) => {
                 info!("Notifications toggled: {}", enabled);
@@ -109,12 +137,18 @@ impl RazerApp {
                 self.tray.set_notifications(enabled);
             }
             TrayEvent::Restart => {
-                info!("Restart requested.");
-                // TODO: Implement graceful restart
+                info!("Restarting application...");
+                if let Ok(exe) = std::env::current_exe() {
+                    let _ = std::process::Command::new(exe).spawn();
+                }
+                let _ = self.worker_tx.send(WorkerCommand::Quit);
+                return true;
             }
             TrayEvent::ShowAbout => {
-                info!("About dialog requested.");
-                // TODO: Show about dialog
+                let url = "https://github.com/xzeldon/razer-battery-report";
+                if let Err(e) = webbrowser::open(url) {
+                    error!("Failed to open browser: {}", e);
+                }
             }
             TrayEvent::Quit => {
                 info!("Exit requested via tray menu.");

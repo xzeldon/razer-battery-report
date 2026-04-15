@@ -33,7 +33,9 @@ impl Worker {
         let context = match librazer::Razer::new() {
             Ok(ctx) => ctx,
             Err(e) => {
-                error!("Critical: Failed to initialize Razer context. Worker thread stopping. Error: {}", e);
+                let msg = format!("Failed to initialize Razer driver: {}", e);
+                error!("Critical: {}", msg);
+                let _ = proxy.send_event(AppEvent::CriticalError(msg));
                 return None;
             }
         };

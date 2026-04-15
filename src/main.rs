@@ -31,6 +31,7 @@ pub enum AppEvent {
     #[cfg(not(target_os = "linux"))]
     MenuEvent(tray_icon::menu::MenuEvent),
     TrayEvent(tray::TrayEvent),
+    CriticalError(String),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -151,6 +152,12 @@ fn main() -> anyhow::Result<()> {
                 if app.on_tray_event(event) {
                     *control_flow = ControlFlow::Exit;
                 }
+            }
+            // Critical Error
+            Event::UserEvent(AppEvent::CriticalError(msg)) => {
+                error!("Critical error: {}", msg);
+                crate::notification::Notifier::send("Razer Battery Report: Critical Error", &msg);
+                *control_flow = ControlFlow::Exit;
             }
             // System shutdown/close
             Event::WindowEvent {
