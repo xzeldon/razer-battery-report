@@ -22,6 +22,9 @@ use tao::{
     event_loop::{ControlFlow, EventLoopBuilder},
 };
 
+#[cfg(target_os = "macos")]
+use tao::platform::macos::{ActivationPolicy, EventLoopExtMacOS};
+
 use crate::{app::RazerApp, icon::IconSet};
 
 /// Events that can be sent to the main event loop.
@@ -99,6 +102,13 @@ fn main() -> anyhow::Result<()> {
 
     // Setup Event Loop
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event().build();
+
+    #[cfg(target_os = "macos")]
+    {
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
+        event_loop.set_dock_visibility(false);
+    }
+
     let proxy = event_loop.create_proxy();
 
     // Spawn Menu listener thread (Windows/macOS only)
@@ -156,7 +166,10 @@ fn main() -> anyhow::Result<()> {
             // Critical Error
             Event::UserEvent(AppEvent::CriticalError(msg)) => {
                 error!("Critical error: {}", msg);
-                crate::notification::Notifier::send("Razer Battery Report: Critical Error", &msg);
+                crate::notification::Notifier::send_blocking(
+                    "Razer Battery Report: Critical Error",
+                    &msg,
+                );
                 *control_flow = ControlFlow::Exit;
             }
             // System shutdown/close

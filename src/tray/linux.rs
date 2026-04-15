@@ -6,12 +6,9 @@ use crate::icon::IconSet;
 use crate::state::DeviceState;
 use crate::tray::TrayEvent;
 
-/// Linux-specific tray implementation using ksni.
-#[allow(dead_code)]
 pub struct AppTray {
     handle: Option<ksni::Handle<KsniTray>>,
     cmd_rx: Option<mpsc::Receiver<TrayEvent>>,
-    cmd_tx: mpsc::Sender<TrayEvent>,
     state: Arc<RwLock<TrayState>>,
 }
 
@@ -28,18 +25,16 @@ impl AppTray {
             notifications_enabled: notifications,
         }));
 
-        let tray = KsniTray::new(state.clone(), cmd_tx.clone());
+        let tray = KsniTray::new(state.clone(), cmd_tx);
         let handle = spawn_ksni(tray)?;
 
         Ok(Self {
             handle: Some(handle),
             cmd_rx: Some(cmd_rx),
-            cmd_tx,
             state,
         })
     }
 
-    /// Initializes the tray with icons. Must be called after event loop starts.
     pub fn init(&mut self, icons: &IconSet) -> anyhow::Result<()> {
         let handle = match self.handle.as_ref() {
             Some(h) => h,
@@ -69,10 +64,7 @@ impl AppTray {
 
         let handle = match self.handle.as_ref() {
             Some(h) => h,
-            None => {
-                error!("ksni handle not available");
-                return;
-            }
+            None => return,
         };
 
         let result = async_io::block_on(handle.update(move |tray| {
@@ -103,7 +95,6 @@ impl AppTray {
         }));
     }
 
-    /// Spawns a background thread that polls for tray events and forwards them to the event loop.
     pub fn spawn_command_receiver(
         &mut self,
         proxy: tao::event_loop::EventLoopProxy<crate::AppEvent>,
@@ -129,6 +120,10 @@ impl AppTray {
     }
 
     pub fn set_autostart(&self, enabled: bool) {
+        if self.state.read().unwrap().autostart_enabled == enabled {
+            return;
+        }
+
         let handle = match self.handle.as_ref() {
             Some(h) => h,
             None => return,
@@ -141,6 +136,10 @@ impl AppTray {
     }
 
     pub fn set_notifications(&self, enabled: bool) {
+        if self.state.read().unwrap().notifications_enabled == enabled {
+            return;
+        }
+
         let handle = match self.handle.as_ref() {
             Some(h) => h,
             None => return,
@@ -151,21 +150,8 @@ impl AppTray {
             s.notifications_enabled = enabled;
         }));
     }
-
-    // These methods are only used on Windows/macOS but are called from
-    // app.rs code that is itself cfg-gated. Stub implementations for Linux.
-    #[allow(unused)]
-    pub fn is_quit_event(&self, _event_id: &str) -> bool {
-        false
-    }
-
-    #[allow(unused)]
-    pub fn handle_menu_click(&self, _event_id: &str) -> Option<String> {
-        None
-    }
 }
 
-/// Shared mutable state for the Linux tray.
 pub struct TrayState {
     pub devices: Vec<DeviceState>,
     pub active_device_path: Option<String>,
@@ -224,10 +210,9 @@ impl ksni::Tray for KsniTray {
                 let status_str = format!("{}", device.status);
                 let desc = format!("Battery level: {}", device.status);
                 drop(s);
-                let icon_pixmap = self.get_current_icon();
                 return ksni::ToolTip {
                     icon_name: "".into(),
-                    icon_pixmap,
+                    icon_pixmap: self.get_current_icon(),
                     title: format!("{}: {}", dtype_str, status_str),
                     description: desc,
                 };
@@ -265,7 +250,6 @@ impl ksni::Tray for KsniTray {
                 .and_then(|path| device_paths.iter().position(|p| p == path))
                 .unwrap_or(0);
 
-            let state_clone = self.state.clone();
             let cmd_tx = self.cmd_tx.clone();
             let device_paths_for_select = device_paths.clone();
             let devices_for_labels = devices.clone();
@@ -276,10 +260,6 @@ impl ksni::Tray for KsniTray {
                     select: Box::new(move |_tray: &mut Self, idx: usize| {
                         if idx < device_paths_for_select.len() {
                             let path = device_paths_for_select[idx].clone();
-                            {
-                                let mut s = state_clone.write().unwrap_or_else(|e| e.into_inner());
-                                s.active_device_path = Some(path.clone());
-                            }
                             let _ = cmd_tx.send(TrayEvent::SelectDevice(path));
                         }
                     }),
@@ -306,36 +286,30 @@ impl ksni::Tray for KsniTray {
         }
 
         // Settings -- CheckmarkItem
-        let state_clone = self.state.clone();
         let cmd_tx_autostart = self.cmd_tx.clone();
+        let state_clone = self.state.clone();
         items.push(
             ksni::menu::CheckmarkItem {
                 label: "Autostart".into(),
                 checked: autostart,
-                activate: Box::new(move |_tray: &mut Self| {
-                    let mut s = state_clone.write().unwrap_or_else(|e| e.into_inner());
-                    s.autostart_enabled = !s.autostart_enabled;
-                    let enabled = s.autostart_enabled;
-                    drop(s);
-                    let _ = cmd_tx_autostart.send(TrayEvent::ToggleAutostart(enabled));
+                activate: Box::new(move |_| {
+                    let current = state_clone.read().unwrap().autostart_enabled;
+                    let _ = cmd_tx_autostart.send(TrayEvent::ToggleAutostart(!current));
                 }),
                 ..Default::default()
             }
             .into(),
         );
 
-        let state_clone = self.state.clone();
         let cmd_tx_notif = self.cmd_tx.clone();
+        let state_clone2 = self.state.clone();
         items.push(
             ksni::menu::CheckmarkItem {
                 label: "Notifications".into(),
                 checked: notifications,
-                activate: Box::new(move |_tray: &mut Self| {
-                    let mut s = state_clone.write().unwrap_or_else(|e| e.into_inner());
-                    s.notifications_enabled = !s.notifications_enabled;
-                    let enabled = s.notifications_enabled;
-                    drop(s);
-                    let _ = cmd_tx_notif.send(TrayEvent::ToggleNotifications(enabled));
+                activate: Box::new(move |_| {
+                    let current = state_clone2.read().unwrap().notifications_enabled;
+                    let _ = cmd_tx_notif.send(TrayEvent::ToggleNotifications(!current));
                 }),
                 ..Default::default()
             }
@@ -349,7 +323,7 @@ impl ksni::Tray for KsniTray {
         items.push(
             ksni::menu::StandardItem {
                 label: "Restart".into(),
-                activate: Box::new(move |_tray: &mut Self| {
+                activate: Box::new(move |_| {
                     let _ = cmd_tx_restart.send(TrayEvent::Restart);
                 }),
                 ..Default::default()
@@ -361,7 +335,7 @@ impl ksni::Tray for KsniTray {
         items.push(
             ksni::menu::StandardItem {
                 label: "About".into(),
-                activate: Box::new(move |_tray: &mut Self| {
+                activate: Box::new(move |_| {
                     let _ = cmd_tx_about.send(TrayEvent::ShowAbout);
                 }),
                 ..Default::default()
@@ -375,7 +349,7 @@ impl ksni::Tray for KsniTray {
         items.push(
             ksni::menu::StandardItem {
                 label: "Exit".into(),
-                activate: Box::new(move |_tray: &mut Self| {
+                activate: Box::new(move |_| {
                     let _ = cmd_tx_quit.send(TrayEvent::Quit);
                 }),
                 ..Default::default()

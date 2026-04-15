@@ -97,16 +97,9 @@ impl RazerApp {
     /// Returns `true` if the application should exit.
     #[cfg(not(target_os = "linux"))]
     pub fn on_menu_event(&mut self, event: tray_icon::menu::MenuEvent) -> bool {
-        if self.tray.is_quit_event(event.id.as_ref()) {
-            info!("Exit requested via tray menu.");
-            let _ = self.worker_tx.send(WorkerCommand::Quit);
-            return true;
+        if let Some(tray_event) = self.tray.process_menu_event(&event) {
+            return self.on_tray_event(tray_event);
         }
-
-        if let Some(selected_path) = self.tray.handle_menu_click(event.id.as_ref()) {
-            self.set_active_device(selected_path);
-        }
-
         false
     }
 
@@ -138,7 +131,7 @@ impl RazerApp {
             }
             TrayEvent::Restart => {
                 info!("Restarting application...");
-                if let Ok(exe) = std::env::current_exe() {
+                if let Ok(exe) = env::current_exe() {
                     let _ = std::process::Command::new(exe).spawn();
                 }
                 let _ = self.worker_tx.send(WorkerCommand::Quit);

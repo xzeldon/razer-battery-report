@@ -170,6 +170,21 @@ fn process_device(
     }
 }
 
+fn hotplug_check_interval() -> Duration {
+    Duration::from_secs(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hotplug_check_interval;
+    use std::time::Duration;
+
+    #[test]
+    fn hotplug_check_interval_is_fast() {
+        assert_eq!(hotplug_check_interval(), Duration::from_secs(1));
+    }
+}
+
 /// Starts the background worker thread.
 pub fn start_worker(
     proxy: EventLoopProxy<AppEvent>,
@@ -185,7 +200,7 @@ pub fn start_worker(
             None => return,
         };
 
-        let hotplug_check_interval = Duration::from_secs(3);
+        let hotplug_check_interval = hotplug_check_interval();
 
         info!("Performing initial device scan...");
         worker.check_hotplug();

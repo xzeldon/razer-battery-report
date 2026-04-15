@@ -1,15 +1,13 @@
 use std::collections::HashMap;
 
+use anyhow::Context;
 use tray_icon::{
-    menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
-    Icon, TrayIcon, TrayIconBuilder,
+    menu::{CheckMenuItem, Menu, MenuItem, MenuEvent, PredefinedMenuItem},
+    TrayIcon, TrayIconBuilder,
 };
-
-use razer_battery_report as librazer;
 
 use crate::icon::IconSet;
 use crate::state::DeviceState;
-#[allow(unused_imports)]
 use crate::tray::TrayEvent;
 
 /// Windows/macOS tray implementation using tray-icon.
@@ -17,14 +15,30 @@ pub struct AppTray {
     tray_icon: Option<TrayIcon>,
     tray_menu: Menu,
     device_items: HashMap<String, CheckMenuItem>,
+    autostart_item: CheckMenuItem,
+    notifications_item: CheckMenuItem,
+    restart_item: MenuItem,
+    about_item: MenuItem,
     quit_item: MenuItem,
 }
 
 impl AppTray {
-    pub fn new(_autostart: bool, _notifications: bool) -> anyhow::Result<Self> {
+    pub fn new(autostart: bool, notifications: bool) -> anyhow::Result<Self> {
         let tray_menu = Menu::new();
-        tray_menu.append(&PredefinedMenuItem::separator())?;
 
+        // Static menu skeleton (device items inserted at index 0 above the first separator)
+        tray_menu.append(&PredefinedMenuItem::separator())?;
+        let autostart_item = CheckMenuItem::new("Autostart", true, autostart, None);
+        tray_menu.append(&autostart_item)?;
+        let notifications_item =
+            CheckMenuItem::new("Notifications", true, notifications, None);
+        tray_menu.append(&notifications_item)?;
+        tray_menu.append(&PredefinedMenuItem::separator())?;
+        let restart_item = MenuItem::new("Restart", true, None);
+        tray_menu.append(&restart_item)?;
+        let about_item = MenuItem::new("About", true, None);
+        tray_menu.append(&about_item)?;
+        tray_menu.append(&PredefinedMenuItem::separator())?;
         let quit_item = MenuItem::new("Exit", true, None);
         tray_menu.append(&quit_item)?;
 
@@ -32,6 +46,10 @@ impl AppTray {
             tray_icon: None,
             tray_menu,
             device_items: HashMap::new(),
+            autostart_item,
+            notifications_item,
+            restart_item,
+            about_item,
             quit_item,
         })
     }
@@ -60,26 +78,19 @@ impl AppTray {
         low_threshold: u8,
         critical_threshold: u8,
     ) {
-        let device_map: HashMap<_, _> = devices
-            .iter()
-            .map(|d| (d.path.clone(), (d.device_type, d.status)))
-            .collect();
+        self.sync_menu_items(devices);
 
-        self.sync_menu_items(&device_map);
-
-        // Update radio buttons
         for (path, item) in &self.device_items {
             let is_active = path == active_device_path;
             if item.is_checked() != is_active {
                 item.set_checked(is_active);
             }
 
-            if let Some((dtype, status)) = device_map.get(path) {
-                item.set_text(format!("{}  [{}]", dtype, status));
+            if let Some(device) = devices.iter().find(|d| d.path == *path) {
+                item.set_text(format!("{} [{}]", device.device_type, device.status));
             }
         }
 
-        // Update icon and tooltip
         if let Some(tray) = self.tray_icon.as_mut() {
             if let Some(device) = devices.iter().find(|d| d.path == active_device_path) {
                 let new_icon = icons.get_icon(&device.status, low_threshold, critical_threshold);
@@ -110,44 +121,62 @@ impl AppTray {
     ) {
     }
 
-    #[allow(unused)]
-    pub fn set_autostart(&self, _enabled: bool) {}
-
-    #[allow(unused)]
-    pub fn set_notifications(&self, _enabled: bool) {}
-
-    pub fn is_quit_event(&self, event_id: &str) -> bool {
-        self.quit_item.id() == event_id
+    pub fn set_autostart(&self, enabled: bool) {
+        self.autostart_item.set_checked(enabled);
     }
 
-    pub fn handle_menu_click(&self, event_id: &str) -> Option<String> {
+    pub fn set_notifications(&self, enabled: bool) {
+        self.notifications_item.set_checked(enabled);
+    }
+
+    /// Process a tray-icon MenuEvent and return the corresponding TrayEvent.
+    pub fn process_menu_event(&self, event: &MenuEvent) -> Option<TrayEvent> {
+        if event.id == self.quit_item.id() {
+            return Some(TrayEvent::Quit);
+        }
+        if event.id == self.restart_item.id() {
+            return Some(TrayEvent::Restart);
+        }
+        if event.id == self.about_item.id() {
+            return Some(TrayEvent::ShowAbout);
+        }
+        if event.id == self.autostart_item.id() {
+            return Some(TrayEvent::ToggleAutostart(self.autostart_item.is_checked()));
+        }
+        if event.id == self.notifications_item.id() {
+            return Some(TrayEvent::ToggleNotifications(
+                self.notifications_item.is_checked(),
+            ));
+        }
+
         for (path, item) in &self.device_items {
-            if item.id() == event_id {
-                return Some(path.clone());
+            if event.id == item.id() {
+                return Some(TrayEvent::SelectDevice(path.clone()));
             }
         }
+
         None
     }
 
-    fn sync_menu_items(
-        &mut self,
-        devices: &HashMap<String, (librazer::DeviceType, librazer::BatteryStatus)>,
-    ) {
+    fn sync_menu_items(&mut self, devices: &[DeviceState]) {
         // Remove items for devices that are gone
         self.device_items.retain(|path, item| {
-            if !devices.contains_key(path) {
+            if !devices.iter().any(|d| d.path == *path) {
                 let _ = self.tray_menu.remove(item);
                 return false;
             }
             true
         });
 
-        // Add items for new devices
-        for (path, (dtype, _)) in devices {
-            if !self.device_items.contains_key(path) {
-                let item = CheckMenuItem::new(format!("{}", dtype), true, false, None);
-                let _ = self.tray_menu.prepend(&item);
-                self.device_items.insert(path.clone(), item);
+        // Add new devices in sorted order (stable across calls)
+        let mut sorted: Vec<_> = devices.iter().collect();
+        sorted.sort_by(|a, b| a.path.cmp(&b.path));
+
+        for device in sorted {
+            if !self.device_items.contains_key(&device.path) {
+                let item = CheckMenuItem::new(format!("{}", device.device_type), true, false, None);
+                let _ = self.tray_menu.insert(&item, 0);
+                self.device_items.insert(device.path.clone(), item);
             }
         }
     }

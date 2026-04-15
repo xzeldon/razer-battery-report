@@ -1,4 +1,3 @@
-#[cfg(target_os = "linux")]
 use anyhow::Context;
 
 use razer_battery_report as librazer;
