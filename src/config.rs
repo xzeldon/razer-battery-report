@@ -3,7 +3,10 @@ use razer_battery_report::DeviceType;
 use serde::{Deserialize, Serialize};
 
 /// Application name used for configuration directory resolution.
-const APP_NAME: &str = "razer-battery-report";
+pub(crate) const APP_NAME: &str = "razer-battery-report";
+
+/// Application name shown to users in UI elements.
+pub const APP_DISPLAY_NAME: &str = "Razer Battery Report";
 
 // Defaults
 const DEFAULT_NOTIFICATIONS: bool = true;

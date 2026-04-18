@@ -16,7 +16,7 @@ use std::time::Duration;
 use log::{debug, error, info};
 use razer_battery_report::{self as librazer};
 
-use config::AppConfig;
+use config::{APP_DISPLAY_NAME, AppConfig};
 use tao::{
     event::{Event, StartCause},
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -75,7 +75,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
-    info!("Starting Razer Battery Report...");
+    info!("Starting {}...", APP_DISPLAY_NAME);
 
     // Handle CLI
     #[cfg(target_os = "linux")]
@@ -167,7 +167,7 @@ fn main() -> anyhow::Result<()> {
             Event::UserEvent(AppEvent::CriticalError(msg)) => {
                 error!("Critical error: {}", msg);
                 crate::notification::Notifier::send_blocking(
-                    "Razer Battery Report: Critical Error",
+                    "Critical Error",
                     &msg,
                 );
                 *control_flow = ControlFlow::Exit;

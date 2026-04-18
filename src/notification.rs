@@ -1,6 +1,8 @@
 use log::warn;
 use std::thread::{self, JoinHandle};
 
+use crate::config::APP_DISPLAY_NAME;
+
 #[cfg(not(target_os = "macos"))]
 use notify_rust::Notification;
 
@@ -55,7 +57,7 @@ fn show(summary: String, body: String) -> Result<(), String> {
     #[cfg(not(target_os = "macos"))]
     {
         Notification::new()
-            .appname("Razer Battery Report")
+            .appname(APP_DISPLAY_NAME)
             .summary(&summary)
             .body(&body)
             .show()

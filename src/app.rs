@@ -5,7 +5,7 @@ use auto_launch::AutoLaunchBuilder;
 use log::{debug, error, info};
 use razer_battery_report as librazer;
 
-use crate::config::AppConfig;
+use crate::config::{APP_NAME, AppConfig};
 use crate::icon::IconSet;
 use crate::state::{DeviceState, DeviceStateManager};
 use crate::tray::{AppTray, TrayEvent};
@@ -26,7 +26,7 @@ pub struct RazerApp {
 fn set_autostart(enabled: bool) -> anyhow::Result<()> {
     let app_path = env::current_exe()?.to_string_lossy().into_owned();
     let auto = AutoLaunchBuilder::new()
-        .set_app_name("razer-battery-report")
+        .set_app_name(APP_NAME)
         .set_app_path(&app_path)
         .set_use_launch_agent(true)
         .build()?;

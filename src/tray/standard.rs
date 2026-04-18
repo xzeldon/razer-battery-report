@@ -61,7 +61,7 @@ impl AppTray {
 
         let tray_icon = TrayIconBuilder::new()
             .with_menu(Box::new(self.tray_menu.clone()))
-            .with_tooltip("Razer Battery Report: Initializing...")
+            .with_tooltip(format!("{}: Initializing...", APP_DISPLAY_NAME))
             .with_icon(icons.white.clone())
             .build()
             .context("Failed to build tray icon")?;

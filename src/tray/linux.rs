@@ -2,6 +2,7 @@ use std::sync::{Arc, RwLock, mpsc};
 
 use log::error;
 
+use crate::config::{APP_DISPLAY_NAME, APP_NAME};
 use crate::icon::IconSet;
 use crate::state::DeviceState;
 use crate::tray::TrayEvent;
@@ -190,7 +191,7 @@ impl KsniTray {
 
 impl ksni::Tray for KsniTray {
     fn id(&self) -> String {
-        "razer-battery-report".into()
+        APP_NAME.into()
     }
 
     fn title(&self) -> String {
@@ -199,7 +200,7 @@ impl ksni::Tray for KsniTray {
             .as_ref()
             .and_then(|path| s.devices.iter().find(|d| d.path == *path))
             .map(|d| format!("{}", d.device_type))
-            .unwrap_or_else(|| "Razer Battery Report".into())
+            .unwrap_or_else(|| APP_DISPLAY_NAME.into())
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {

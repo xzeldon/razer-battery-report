@@ -65,11 +65,9 @@ impl DeviceStateManager {
                         config,
                     );
                 }
-            } else {
-                if config.notifications_enabled {
+            } else if config.notifications_enabled {
                     Notifier::send("Device Connected", &format!("{}", current.device_type));
                 }
-            }
         }
 
         // Update internal state

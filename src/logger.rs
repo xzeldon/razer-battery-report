@@ -4,7 +4,7 @@ use flexi_logger::{Cleanup, Criterion, Duplicate, FileSpec, Logger, Naming, Writ
 use log::Record;
 use std::path::PathBuf;
 
-use crate::config::LogLevel;
+use crate::config::{APP_NAME, LogLevel};
 
 /// Defines how the logger should output data.
 pub enum LogMode {
@@ -17,9 +17,9 @@ pub enum LogMode {
 /// Initializes the logging system.
 ///
 /// Logs are written to platform-native locations:
-/// - Windows: `%LOCALAPPDATA%\razer-battery-report\logs`
-/// - Linux: `$XDG_STATE_HOME/razer-battery-report/logs`
-/// - macOS: `~/Library/Logs/razer-battery-report`
+/// - Windows: `%LOCALAPPDATA%\{APP_NAME}\logs`
+/// - Linux: `$XDG_STATE_HOME/{APP_NAME}/logs`
+/// - macOS: `~/Library/Logs/{APP_NAME}`
 pub fn init(cli_level: Option<LogLevel>, config_level: LogLevel, mode: LogMode) -> Result<()> {
     let level = cli_level.unwrap_or(config_level);
 
@@ -47,7 +47,7 @@ pub fn init(cli_level: Option<LogLevel>, config_level: LogLevel, mode: LogMode) 
                 .context("Failed to start CLI logger")?;
         }
         LogMode::FileAndConsole => {
-            let project_dirs = ProjectDirs::from("", "", "razer-battery-report")
+            let project_dirs = ProjectDirs::from("", "", APP_NAME)
                 .context("Could not determine home directory")?;
 
             let log_dir: PathBuf = if cfg!(target_os = "linux") {
@@ -61,17 +61,17 @@ pub fn init(cli_level: Option<LogLevel>, config_level: LogLevel, mode: LogMode) 
                 if let Some(user_dirs) = UserDirs::new() {
                     user_dirs
                         .home_dir()
-                        .join("Library/Logs/razer-battery-report")
+                        .join(format!("Library/Logs/{}", APP_NAME))
                 } else {
                     // Fallback if we somehow can't find the home dir
                     project_dirs.data_local_dir().join("logs")
                 }
             } else {
-                // Windows: %LOCALAPPDATA%\razer-battery-report\logs
+                // Windows: %LOCALAPPDATA%\{APP_NAME}\logs
                 BaseDirs::new()
                     .context("Could not get BaseDirs")?
                     .data_local_dir()
-                    .join("razer-battery-report")
+                    .join(APP_NAME)
                     .join("logs")
             };
 
@@ -84,7 +84,7 @@ pub fn init(cli_level: Option<LogLevel>, config_level: LogLevel, mode: LogMode) 
                 .log_to_file(
                     FileSpec::default()
                         .directory(log_dir)
-                        .basename("razer-battery-report"),
+                        .basename(APP_NAME),
                 )
                 // Keep last 5 files, rotate if > 1MB
                 .rotate(
