@@ -43,7 +43,8 @@ impl DeviceInfo {
                 || pid == RAZER_OROCHI_V2.pid
                 || pid == RAZER_OROCHI_V2_BT.pid
                 || pid == RAZER_DEATHADDER_V4_PRO_WIRED.pid
-                || pid == RAZER_DEATHADDER_V4_PRO_WIRELESS.pid =>
+                || pid == RAZER_DEATHADDER_V4_PRO_WIRELESS.pid 
+                || pid == RAZER_VIPER_V3_HYPERSPEED.pid =>
             {
                 0x1F
             }
@@ -73,6 +74,8 @@ pub const RAZER_DEATHADDER_V3_HYPERSPEED_WIRELESS: DeviceInfo = DeviceInfo::new(
     2,
     false,
 );
+pub const RAZER_VIPER_V3_HYPERSPEED: DeviceInfo =
+    DeviceInfo::new("Razer Viper V3 HyperSpeed", 0x00B8, 0, 1, 2, true);
 
 pub const RAZER_DEATHADDER_V2_PRO_WIRED: DeviceInfo =
     DeviceInfo::new("Razer DeathAdder V2 Pro (Wired)", 0x007C, 0, 1, 2, false);
@@ -129,7 +132,7 @@ pub const RAZER_DEATHADDER_V4_PRO_WIRED: DeviceInfo =
 pub const RAZER_DEATHADDER_V4_PRO_WIRELESS: DeviceInfo =
     DeviceInfo::new("Razer DeathAdder V4 Pro (Wireless)", 0x00BF, 0, 1, 2, false);
 
-pub const RAZER_DEVICE_LIST: [DeviceInfo; 18] = [
+pub const RAZER_DEVICE_LIST: [DeviceInfo; 19] = [
     RAZER_DEATHADDER_V3_PRO_WIRED,
     RAZER_DEATHADDER_V3_PRO_WIRELESS,
     RAZER_DEATHADDER_V3_HYPERSPEED_WIRED,
@@ -148,4 +151,5 @@ pub const RAZER_DEVICE_LIST: [DeviceInfo; 18] = [
     RAZER_DEATHADDER_V4_PRO_WIRELESS,
     RAZER_OROCHI_V2,
     RAZER_OROCHI_V2_BT,
+    RAZER_VIPER_V3_HYPERSPEED,
 ];
