@@ -1,1 +1,4 @@
 /target
+
+# config for linux cross-compilation
+# .cargo/config.toml
