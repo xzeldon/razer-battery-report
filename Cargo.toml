@@ -1,26 +1,18 @@
-[package]
-name = "razer-battery-report"
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+
+[workspace.package]
 version = "0.5.0"
+edition = "2024"
 authors = ["xzeldon <contact@zeldon.ru>"]
-edition = "2021"
-description = "Razer Battery Level Tray Indicator"
 
-# Slower builds, faster executables
-[profile.release]
-lto = "fat"
-codegen-units = 1
-opt-level = 3
-
-# Faster builds, slower executables
-[profile.dev]
-opt-level = 0
-lto = false
-incremental = true
-codegen-units = 16
-
-[dependencies]
+[workspace.dependencies]
 # Communicate with HID devices
 hidapi = "2.6.4"
+
+# Error types for libraries
+thiserror = "2"
 
 # Logging
 log = "0.4.29"
@@ -41,3 +33,27 @@ parking_lot = "0.12"
 
 # Desktop notifications
 notify-rust = "4.11.7"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+must_use_candidate = "allow"
+missing_errors_doc = "allow"
+# AGENTS.md writes a two-arm choice on a bool as `match flag { true => …, false => … }`.
+match_bool = "allow"
+
+# Slower builds, faster executables
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
+
+# Faster builds, slower executables
+[profile.dev]
+opt-level = 0
+lto = false
+incremental = true
+codegen-units = 16

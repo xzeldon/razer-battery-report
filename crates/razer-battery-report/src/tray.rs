@@ -1,5 +1,5 @@
 use std::{
-    collections::{hash_map::Entry, HashMap, HashSet},
+    collections::{HashMap, HashSet, hash_map::Entry},
     rc::Rc,
     sync::{Arc, OnceLock},
     thread,
@@ -11,8 +11,8 @@ use log::{error, info, trace, warn};
 use parking_lot::Mutex;
 use tao::event_loop::{EventLoopBuilder, EventLoopProxy};
 use tray_icon::{
-    menu::{IsMenuItem, Menu, MenuEvent, MenuItem},
     TrayIcon, TrayIconBuilder,
+    menu::{IsMenuItem, Menu, MenuEvent, MenuItem},
 };
 
 const BATTERY_UPDATE_INTERVAL: u64 = 300; // 5 min
@@ -155,7 +155,7 @@ impl TrayApp {
     }
 
     fn create_icon() -> Result<tray_icon::Icon, String> {
-        let icon = include_bytes!("../assets/mouse_white.png");
+        let icon = include_bytes!("../../../assets/mouse_white.png");
         let image = match image::load_from_memory(icon) {
             Ok(image) => image.into_rgba8(),
             Err(e) => return Err(format!("Failed to open icon: {}", e)),
@@ -339,12 +339,12 @@ impl TrayApp {
 
         let cached = match (battery_level, is_charging) {
             (lvl, false) if lvl <= BATTERY_CRITICAL_LEVEL => {
-                RED.get_or_init(|| load_icon(include_bytes!("../assets/mouse_red.png")))
+                RED.get_or_init(|| load_icon(include_bytes!("../../../assets/mouse_red.png")))
             }
             (lvl, false) if lvl <= BATTERY_LOW_LEVEL => {
-                YELLOW.get_or_init(|| load_icon(include_bytes!("../assets/mouse_yellow.png")))
+                YELLOW.get_or_init(|| load_icon(include_bytes!("../../../assets/mouse_yellow.png")))
             }
-            _ => WHITE.get_or_init(|| load_icon(include_bytes!("../assets/mouse_white.png"))),
+            _ => WHITE.get_or_init(|| load_icon(include_bytes!("../../../assets/mouse_white.png"))),
         };
 
         tray_icon::Icon::from_rgba(cached.rgba.clone(), cached.width, cached.height)

@@ -1,0 +1,17 @@
+[package]
+name = "razer-battery-report"
+description = "Razer Battery Level Tray Indicator"
+version.workspace = true
+authors.workspace = true
+edition = "2021"
+
+[dependencies]
+hidapi.workspace = true
+log.workspace = true
+pretty_env_logger.workspace = true
+tao.workspace = true
+tray-icon.workspace = true
+image.workspace = true
+winapi.workspace = true
+parking_lot.workspace = true
+notify-rust.workspace = true
