@@ -2486,6 +2486,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "razer-hid"
+version = "0.5.0"
+dependencies = [
+ "hidapi",
+ "log",
+ "thiserror 2.0.19",
+]
+
+[[package]]
 name = "reborrow"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"

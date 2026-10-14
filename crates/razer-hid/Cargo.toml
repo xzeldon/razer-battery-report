@@ -1,0 +1,14 @@
+[package]
+name = "razer-hid"
+description = "Razer HID protocol, device catalog and battery queries"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+hidapi.workspace = true
+log.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
