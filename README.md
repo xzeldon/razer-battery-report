@@ -1,103 +1,133 @@
-<h1 align="center">razer-battery-report</h1>
+# razer-battery-report
 
-<p align="center">
-  <b>Razer Battery Level Tray Indicator</b>
-</p>
+Shows the battery level of a wireless Razer mouse in the Windows system tray.
 
-<p align="center">
-  <img src="img/demo.png">
-</p>
+The tray icon is a mouse that fills up with the charge. It turns yellow when the battery is low
+and red at 5% or less. A lightning bolt on the icon means the mouse is charging, a moon means it
+is asleep, and a crossed-out mouse means no supported mouse is connected. Hover over the icon to
+see the exact percentage.
 
-Show your wireless Razer devices battery levels in your system tray.
+Only Windows is supported for now. Linux and macOS are planned.
 
-> Currently, this works only on **Windows**.
+## Install
 
-## Supported devices
+1. Download `razer-battery-report.exe` from the
+   [latest release](https://github.com/xzeldon/razer-battery-report/releases/latest).
+2. Move it to a folder it can stay in, for example `C:\Program Files\Razer Battery Report\`.
+3. Run it. If Windows hides the icon, drag it out of the overflow area of the taskbar.
+4. Turn on **Start at login** in the tray menu to have it start with Windows.
 
-| Device                                                     | USB VID:PID |
-| ---------------------------------------------------------- | ----------- |
-| Razer DeathAdder V3 Pro (Wired)                            | 1532:00B6   |
-| Razer DeathAdder V3 Pro (Wireless)                         | 1532:00B7   |
-| Razer DeathAdder V3 HyperSpeed (Wired)                     | 1532:00C4   |
-| Razer DeathAdder V3 HyperSpeed (Wireless)                  | 1532:00C5   |
-| Razer DeathAdder V2 Pro (Wired)                            | 1532:007C   |
-| Razer DeathAdder V2 Pro (Wireless)                         | 1532:007D   |
-| Razer DeathAdder V4 Pro (Wired)                            | 1532:00BE   |
-| Razer DeathAdder V4 Pro (Wireless)                         | 1532:00BF   |
-| Razer Basilisk V3 Pro (Wired)                              | 1532:00AA   |
-| Razer Basilisk V3 Pro (Wireless)                           | 1532:00AB   |
-| Razer Basilisk V3 Pro 35K (Wired)                          | 1532:00CC   |
-| Razer Basilisk V3 Pro 35K (Wireless)                       | 1532:00CD   |
-| Razer Basilisk V3 Pro 35K Phantom Green Edition (Wired)    | 1532:00D6   |
-| Razer Basilisk V3 Pro 35K Phantom Green Edition (Wireless) | 1532:00D7   |
-| Razer Viper Ultimate (Wired)                               | 1532:007A   |
-| Razer Viper Ultimate (Wireless)                            | 1532:007B   |
-| Razer Orochi V2 (Receiver)                                 | 1532:0094   |
-| Razer Orochi V2 (Bluetooth)                                | 1532:0095   |
+Windows 11 24H2 or newer is recommended. Older Windows, including Windows 10, works too, but a
+console window flashes for a moment each time the app starts.
 
-> **Note:** If your device is not listed, you can add support for it yourself! Please see the [Adding new devices yourself](#adding-new-devices-yourself) section below. Contributions and Pull Requests are welcome!
+There is no installer yet. To remove the app, turn off **Start at login**, exit it and delete the
+exe. Settings and logs stay in the folders listed under [Files](#files).
 
-## Usage
+## Tray menu
 
-### Installation
+Right-click the icon to open the menu.
 
-> **Note:** Since this project is currently in active development, there is no installer (`.msi` or setup `.exe`) yet. To set up the application permanently (Start Menu icon, Autostart), please follow the manual steps below.
+- The connected mice. With more than one connected, click the one the icon should show.
+- **Notifications** turns the popups on or off. A popup appears when a mouse connects or
+  disconnects, when its battery gets low or nearly empty, and when it finishes charging.
+- **Low battery** sets the level at which the icon turns yellow and the low battery popup
+  appears: 10, 15, 20 or 25%.
+- **Show level on icon** turns the fill off if you prefer a plain outline.
+- **Start at login** starts the app when you log in to Windows.
+- **Open log** opens the log file. Attach it when you report a bug.
 
-1. **Download** the latest `razer-battery-report.exe` from [Releases](https://github.com/xzeldon/razer-battery-report/releases/latest).
+## Command line
 
-2. **Move the executable** to a safe permanent location.
-   - _Recommended:_ Create a folder at `C:\Program Files\Razer Battery Report\` and move the `.exe` there.
-   - _Note:_ This prevents accidental deletion from your Downloads folder.
+The same exe prints the battery level in a terminal:
 
-3. **Add to Startup** (Recommended):
-   - Right-click `razer-battery-report.exe` -> **Create shortcut**.
-   - Press `Win + R`, type `shell:startup` and press Enter.
-   - Move the created shortcut into the opened folder.
-   - _Now the app will start automatically when you log in._
+```console
+> razer-battery-report status
+Razer DeathAdder V4 Pro  42%
+```
 
-4. **Add to Start Menu** (Optional):
-   - Create another shortcut.
-   - Press `Win + R`, type `shell:programs` and press Enter.
-   - Move the shortcut into the opened folder.
-   - _Now you can search for "Razer Battery Report" in Windows Search._
+`status --json` prints the same data as JSON, with the serial number and the connection of every
+mouse. `diagnose` prints a report with the app version, the paths below and every mouse it finds;
+paste it into a bug report.
 
-> **Tips:**
->
-> - You can rename the shortcuts to simply **"Razer Battery Report"** (remove ".exe" and "Shortcut").
-> - **Custom Icon:**
->   1. Download [`mouse.ico`](https://github.com/xzeldon/razer-battery-report/raw/master/assets/mouse.ico) (save it in the same folder as the `.exe`).
->   2. Right-click the shortcut -> **Properties** -> **Change Icon...** -> **Browse** -> Select the downloaded `.ico` file.
+## Files
 
-### Building from Source
+The menu settings are saved to `%APPDATA%\razer-battery-report\config.toml`. Logs are in
+`%LOCALAPPDATA%\razer-battery-report\logs\`.
 
-To build, you must have [Rust](https://www.rust-lang.org/) and
-[Git](https://git-scm.com/) installed on your system.
+## Supported mice
 
-1. Clone this repository: `git clone https://github.com/xzeldon/razer-battery-report.git`
-2. Navigate into your local repository: `cd razer-battery-report`
-3. Build: `cargo build --release`
-4. Executable will be located at `target/release/razer-battery-report.exe`
+Each connection of a mouse has its own USB product id, listed below with Razer's vendor id 1532.
+A mouse connected by cable and receiver at the same time shows up once.
 
-## Adding new devices yourself
+| Mouse | Cable | Receiver | Bluetooth |
+| --- | --- | --- | --- |
+| Razer Atheris ¹ |  | 0062 |  |
+| Razer Basilisk Mobile ¹ | 00D3 | 00D4 |  |
+| Razer Basilisk Ultimate | 0086 | 0088 |  |
+| Razer Basilisk V3 Pro | 00AA | 00AB |  |
+| Razer Basilisk V3 Pro 35K | 00CC | 00CD |  |
+| Razer Basilisk V3 Pro 35K Phantom Green Edition | 00D6 | 00D7 |  |
+| Razer Basilisk V3 X HyperSpeed ¹ |  | 00B9 |  |
+| Razer Basilisk X HyperSpeed ¹ |  | 0083 |  |
+| Razer Cobra HyperSpeed | 00DA | 00DB |  |
+| Razer Cobra Pro | 00AF | 00B0 |  |
+| Razer DeathAdder V2 Pro | 007C | 007D |  |
+| Razer DeathAdder V2 X HyperSpeed ¹ |  | 009C |  |
+| Razer DeathAdder V3 HyperSpeed | 00C4 | 00C5 |  |
+| Razer DeathAdder V3 Pro | 00B6, 00C2 | 00B7, 00C3 |  |
+| Razer DeathAdder V4 Pro | 00BE | 00BF |  |
+| Razer HyperPolling Wireless Dongle |  | 00B3 |  |
+| Razer Lancehead | 0059 | 005A |  |
+| Razer Lancehead Wireless | 0070 | 006F |  |
+| Razer Mamba 2012 | 0024 | 0025 |  |
+| Razer Mamba Chroma | 0044 | 0045 |  |
+| Razer Mamba Wireless | 0073 | 0072 |  |
+| Razer Naga Epic | 001F |  |  |
+| Razer Naga Epic Chroma | 003E | 003F |  |
+| Razer Naga Pro | 008F | 0090 |  |
+| Razer Naga V2 HyperSpeed ¹ |  | 00B4 |  |
+| Razer Naga V2 Pro | 00A7 | 00A8 |  |
+| Razer Orochi V2 ¹ |  | 0094 | 0095 |
+| Razer Ouroboros | 0032 |  |  |
+| Razer Pro Click | 0080 | 0077 |  |
+| Razer Pro Click Mini |  | 009A |  |
+| Razer Pro Click V2 | 00D0 | 00D1 |  |
+| Razer Pro Click V2 Vertical Edition | 00C7 | 00C8 |  |
+| Razer Viper Mini SE | 009E | 009F |  |
+| Razer Viper Ultimate | 007A | 007B |  |
+| Razer Viper V2 Pro | 00A5 | 00A6 |  |
+| Razer Viper V3 HyperSpeed ¹ |  | 00B8 |  |
+| Razer Viper V3 Pro | 00C0 | 00C1 |  |
+| Razer Viper V3 Pro SE | 00DE | 00DF |  |
 
-- add device with `name`, `pid`, `interface`, `usage_page`, `usage` to [devices.rs](/src/devices.rs)
-- add `transaction_id` to switch statement in `DeviceInfo` in [devices.rs](/src/devices.rs)
+¹ The mouse cannot report whether it is charging, so the app never shows the lightning bolt or the
+"fully charged" popup for it.
 
-> You can grab `pid` and other data from the [openrazer](https://github.com/openrazer/openrazer/blob/685290bb0128dc0b063c524b55f76f4091da9b15/driver/razermouse_driver.h)
+The list comes from [openrazer](https://github.com/openrazer/openrazer). If your mouse is
+missing, see [adding a mouse](CONTRIBUTING.md#adding-a-mouse).
 
-## Todo
+## Questions
 
-- [x] Tray Applet
-  - [ ] Force update devices button in tray menu
-  - [x] Colored tray icons for different battery levels
-  - [x] Show log window button in tray menu
-  - [x] Further reduce CPU usage by using Event Loop Proxy events (more info [here](https://github.com/tauri-apps/tray-icon/issues/83#issuecomment-1697773065))
-- [x] Prebuilt Binary
-- [ ] Command Line Arguments for update frequency
-- [ ] Support for other Razer Devices (I only have DeathAdder V3 Pro, so I won't be able to test it with other devices)
+**My mouse runs on rechargeable AA batteries and the percentage looks wrong.** The mouse computes
+the percentage itself and expects alkaline batteries. NiMH batteries hold a lower, flatter voltage,
+so the reading drops early and then stays put. The app shows what the mouse reports.
 
-## Acknowledgments
+**The mouse is connected but the icon shows a moon.** The mouse is asleep and does not answer.
+Move it and the level comes back within a few seconds.
 
-- Linux Drivers for Razer devices: https://github.com/openrazer/openrazer
-- This python script: https://github.com/spozer/razer-battery-checker
-- 🖱️ Logitech Battery Level Tray Indicator (Elem): https://github.com/Fuwn/elem
+## Building from source
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Credits
+
+- [openrazer](https://github.com/openrazer/openrazer) for the protocol and the device data.
+- [Lucide](https://lucide.dev) for the icons, used under the ISC license
+  ([`assets/icons/lucide/LICENSE`](assets/icons/lucide/LICENSE)).
+- [razer-battery-checker](https://github.com/spozer/razer-battery-checker), a Python script that
+  reads the same battery data.
+- [elem](https://github.com/Fuwn/elem), a battery tray icon for Logitech mice.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
