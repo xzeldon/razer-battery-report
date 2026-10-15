@@ -70,37 +70,50 @@ impl DeviceManager {
     }
 
     pub fn get_device_battery_level(&self, id: u32) -> Option<i32> {
-        let controller = self
+        let matching: Vec<&DeviceController> = self
             .device_controllers
             .iter()
-            .find(|c| c.pid as u32 == id)?;
+            .filter(|c| c.pid as u32 == id)
+            .collect();
 
-        match controller.get_battery_level() {
-            Ok(level) => Some(level),
-            Err(err) => {
-                warn!("Failed to get battery level: {:?}", err);
-                None
+        for controller in &matching {
+            match controller.get_battery_level() {
+                Ok(level) => return Some(level),
+                Err(err) => {
+                    warn!("Failed to get battery level (trying next interface): {err}");
+                }
             }
         }
+
+        if matching.is_empty() {
+            warn!("No device found with PID {:#x}", id);
+        }
+        None
     }
 
     pub fn is_device_charging(&self, id: u32) -> Option<bool> {
-        let controller = self
+        let matching: Vec<&DeviceController> = self
             .device_controllers
             .iter()
-            .find(|c| c.pid as u32 == id)?;
+            .filter(|c| c.pid as u32 == id)
+            .collect();
 
-        if controller.swappable_battery {
-            return Some(false);
-        }
-
-        match controller.get_charging_status() {
-            Ok(status) => Some(status),
-            Err(err) => {
-                warn!("Failed to get charging status: {:?}", err);
-                None
+        for controller in &matching {
+            if controller.swappable_battery {
+                return Some(false);
+            }
+            match controller.get_charging_status() {
+                Ok(status) => return Some(status),
+                Err(err) => {
+                    warn!("Failed to get charging status (trying next interface): {err}");
+                }
             }
         }
+
+        if matching.is_empty() {
+            warn!("No device found with PID {:#x}", id);
+        }
+        None
     }
 
     fn get_connected_devices(&self, api: &HidApi) -> Vec<DeviceController> {
@@ -114,7 +127,9 @@ impl DeviceManager {
                 razer_devices
                     .get(&(hid_device.vendor_id(), hid_device.product_id()))
                     .and_then(|device| {
-                        if hid_device.interface_number() != device.interface.into() {
+                        if !cfg!(target_os = "windows")
+                            && hid_device.interface_number() != device.interface.into()
+                        {
                             return None;
                         }
                         if cfg!(target_os = "windows")
