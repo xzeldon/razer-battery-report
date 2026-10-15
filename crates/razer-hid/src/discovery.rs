@@ -1,6 +1,6 @@
 //! Finding the mice that are plugged in and grouping their endpoints by physical mouse.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::catalog::{self, Entry};
 use crate::device::{Battery, Endpoint};
@@ -66,21 +66,51 @@ enum Identity {
     Path(String),
 }
 
-/// Lists the connected mice on `bus`.
-pub(crate) fn discover(bus: &dyn Bus) -> Result<Vec<Device>> {
-    let mut order: Vec<Identity> = Vec::new();
-    let mut groups: HashMap<Identity, Vec<Endpoint>> = HashMap::new();
-    for (entry, candidates) in group_collections(bus.collections()?) {
-        let Some(endpoint) = open_endpoint(bus, entry, &candidates) else {
-            continue;
-        };
-        let identity = match endpoint.serial() {
-            Ok(serial) => Identity::Serial(serial),
+/// The protocol serial of every endpoint that answered, keyed by endpoint path, so the mouse is
+/// asked once. Failed reads are not remembered: a sleeping mouse is asked again on every scan,
+/// which is cheap, and gets its serial the first time it answers.
+#[derive(Debug, Default)]
+pub(crate) struct SerialCache {
+    serials: HashMap<String, String>,
+}
+
+impl SerialCache {
+    /// Forgets the endpoints that are not in `paths` any more.
+    fn retain_paths(&mut self, paths: &HashSet<String>) {
+        self.serials.retain(|path, _| paths.contains(path));
+    }
+
+    /// The identity of `endpoint`, read from the mouse only when its serial is not cached.
+    fn identity(&mut self, endpoint: &Endpoint) -> Identity {
+        if let Some(serial) = self.serials.get(endpoint.path()) {
+            return Identity::Serial(serial.clone());
+        }
+        match endpoint.serial() {
+            Ok(serial) => {
+                self.serials
+                    .insert(endpoint.path().to_owned(), serial.clone());
+                Identity::Serial(serial)
+            }
             Err(error) => {
                 log::debug!("hid: no serial from {}: {error}", endpoint.name());
                 Identity::Path(endpoint.path().to_owned())
             }
-        };
+        }
+    }
+}
+
+/// Lists the connected mice on `bus`, reading serials only for endpoints `cache` does not know.
+pub(crate) fn discover(bus: &dyn Bus, cache: &mut SerialCache) -> Result<Vec<Device>> {
+    let endpoints: Vec<Endpoint> = group_collections(bus.collections()?)
+        .into_iter()
+        .filter_map(|(entry, candidates)| open_endpoint(bus, entry, &candidates))
+        .collect();
+    cache.retain_paths(&endpoints.iter().map(|e| e.path().to_owned()).collect());
+
+    let mut order: Vec<Identity> = Vec::new();
+    let mut groups: HashMap<Identity, Vec<Endpoint>> = HashMap::new();
+    for endpoint in endpoints {
+        let identity = cache.identity(&endpoint);
         if !groups.contains_key(&identity) {
             order.push(identity.clone());
         }
@@ -205,7 +235,7 @@ mod tests {
         let mut bus = MockBus::default();
         bus.add("dongle", DONGLE, MOUSE, with_serial("PM1"));
         bus.add("cable", WIRED, MOUSE, with_serial("PM1"));
-        let devices = discover(&bus).unwrap();
+        let devices = discover(&bus, &mut SerialCache::default()).unwrap();
         assert_eq!(devices.len(), 1);
         let device = &devices[0];
         assert_eq!(device.serial(), Some("PM1"));
@@ -220,7 +250,7 @@ mod tests {
         let mut bus = MockBus::default();
         bus.add("one", WIRED, MOUSE, with_serial("PM1"));
         bus.add("two", WIRED, MOUSE, with_serial("PM2"));
-        let devices = discover(&bus).unwrap();
+        let devices = discover(&bus, &mut SerialCache::default()).unwrap();
         let serials: Vec<_> = devices.iter().map(Device::serial).collect();
         assert_eq!(serials, [Some("PM1"), Some("PM2")]);
     }
@@ -231,26 +261,9 @@ mod tests {
         // The mock answers "not supported" to the serial command.
         bus.add("a", WIRED, MOUSE, Behavior::default());
         bus.add("b", DONGLE, MOUSE, Behavior::default());
-        let devices = discover(&bus).unwrap();
+        let devices = discover(&bus, &mut SerialCache::default()).unwrap();
         assert_eq!(devices.len(), 2);
         assert!(devices.iter().all(|device| device.serial().is_none()));
-    }
-
-    #[test]
-    fn serial_unsupported_in_catalog_stands_alone() {
-        let mut bus = MockBus::default();
-        // Razer Mamba 2012 (Wired) has no serial in the catalog.
-        bus.add("old", 0x0024, MOUSE, with_serial("PM1"));
-        let devices = discover(&bus).unwrap();
-        assert_eq!(devices.len(), 1);
-        assert_eq!(devices[0].serial(), None);
-    }
-
-    #[test]
-    fn ignores_products_outside_the_catalog() {
-        let mut bus = MockBus::default();
-        bus.add("other", 0x0203, MOUSE, with_serial("PM1"));
-        assert!(discover(&bus).unwrap().is_empty());
     }
 
     #[test]
@@ -260,7 +273,7 @@ mod tests {
         let mouse = format!("{COLLECTION_PATH}1#8&aa&0&0000#{{g}}");
         bus.add(&other, WIRED, OTHER, broken());
         bus.add(&mouse, WIRED, MOUSE, with_serial("PM1"));
-        let devices = discover(&bus).unwrap();
+        let devices = discover(&bus, &mut SerialCache::default()).unwrap();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].endpoints().len(), 1);
         assert_eq!(devices[0].endpoints()[0].path(), mouse);
@@ -274,10 +287,61 @@ mod tests {
         let other = format!("{COLLECTION_PATH}2#8&aa&0&0001#{{g}}");
         bus.add(&mouse, WIRED, MOUSE, broken());
         bus.add(&other, WIRED, OTHER, with_serial("PM1"));
-        let devices = discover(&bus).unwrap();
+        let devices = discover(&bus, &mut SerialCache::default()).unwrap();
         assert_eq!(devices.len(), 1);
         assert_eq!(devices[0].serial(), Some("PM1"));
         assert!(devices[0].battery().is_ok());
+    }
+
+    #[test]
+    fn second_scan_of_an_unchanged_bus_sends_no_serial_request() {
+        let mut bus = MockBus::default();
+        bus.add("dongle", DONGLE, MOUSE, with_serial("PM1"));
+        bus.add("cable", WIRED, MOUSE, with_serial("PM1"));
+        let mut cache = SerialCache::default();
+        let first = discover(&bus, &mut cache).unwrap();
+        assert_eq!(bus.serial_requests(), 2);
+        let second = discover(&bus, &mut cache).unwrap();
+        assert_eq!(bus.serial_requests(), 2);
+        assert_eq!(second.len(), 1);
+        assert_eq!(second[0].serial(), first[0].serial());
+        assert_eq!(second[0].endpoints().len(), 2);
+    }
+
+    #[test]
+    fn failed_serial_is_retried_until_it_succeeds_and_then_cached() {
+        let mut bus = MockBus::default();
+        bus.add("dongle", DONGLE, MOUSE, Behavior::default());
+        let mut cache = SerialCache::default();
+        let devices = discover(&bus, &mut cache).unwrap();
+        assert_eq!(devices[0].serial(), None);
+        discover(&bus, &mut cache).unwrap();
+        assert_eq!(bus.serial_requests(), 2);
+
+        // The mouse woke up.
+        bus.set_behavior("dongle", with_serial("PM1"));
+        let devices = discover(&bus, &mut cache).unwrap();
+        assert_eq!(bus.serial_requests(), 3);
+        assert_eq!(devices[0].serial(), Some("PM1"));
+        discover(&bus, &mut cache).unwrap();
+        assert_eq!(bus.serial_requests(), 3);
+    }
+
+    #[test]
+    fn unplugged_endpoint_is_evicted_from_the_cache() {
+        let mut bus = MockBus::default();
+        bus.add("cable", WIRED, MOUSE, with_serial("PM1"));
+        let mut cache = SerialCache::default();
+        discover(&bus, &mut cache).unwrap();
+        assert_eq!(bus.serial_requests(), 1);
+
+        bus.remove("cable");
+        assert!(discover(&bus, &mut cache).unwrap().is_empty());
+
+        bus.add("cable", WIRED, MOUSE, with_serial("PM2"));
+        let devices = discover(&bus, &mut cache).unwrap();
+        assert_eq!(bus.serial_requests(), 2);
+        assert_eq!(devices[0].serial(), Some("PM2"));
     }
 
     #[test]

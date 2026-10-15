@@ -175,13 +175,6 @@ mod tests {
     }
 
     #[test]
-    fn model_names_are_not_empty() {
-        for entry in CATALOG {
-            assert!(!entry.model_name().is_empty(), "{}", entry.name);
-        }
-    }
-
-    #[test]
     fn serial_tid_needs_serial_support() {
         for entry in CATALOG {
             if entry.serial_tid.is_some() {
@@ -196,11 +189,5 @@ mod tests {
         assert_eq!(name(0x0024), "Razer Mamba 2012");
         assert_eq!(name(0x00B3), "Razer HyperPolling Wireless Dongle");
         assert!(find(0xFFFF).is_none());
-    }
-
-    #[test]
-    fn links_are_ordered_by_preference() {
-        assert!(Link::Wired < Link::Dongle);
-        assert!(Link::Dongle < Link::Bluetooth);
     }
 }

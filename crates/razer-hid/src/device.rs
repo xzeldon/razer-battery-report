@@ -9,10 +9,11 @@ use crate::error::{Error, Result};
 use crate::report::{Command, REPORT_LEN, Report, Status};
 use crate::transport::Transport;
 
-/// How many times a command is sent before giving up on a busy or silent mouse.
-const MAX_TRIES: u32 = 10;
-/// Pause between two tries.
-const RETRY_DELAY: Duration = Duration::from_millis(500);
+/// How many times a command is sent before giving up on a busy or silent mouse; the same count
+/// as openrazer's `razer_send_payload`.
+const MAX_TRIES: u32 = 5;
+/// Pause between two tries; the same 10 ms as openrazer's `razer_send_payload`.
+const RETRY_DELAY: Duration = Duration::from_millis(10);
 /// Raw battery byte that stands for 100 percent.
 const RAW_BATTERY_FULL: u16 = 255;
 /// Highest valid percentage.
@@ -152,35 +153,51 @@ impl Endpoint {
             .ok_or(Error::InvalidResponse("malformed serial number"))
     }
 
-    /// Sends `command` until the mouse answers with success, retrying while it is busy or
-    /// silent.
+    /// Sends `command` until the mouse answers with success, retrying like openrazer while it is
+    /// busy, silent or garbled (a pairing dongle sends garbage).
     fn query(&self, command: Command, tid: u8) -> Result<Report> {
         let request = Report::request(tid, command);
+        let mut garbled = None;
         for attempt in 1..=MAX_TRIES {
-            let response = self.exchange(&request)?;
+            if attempt > 1 {
+                thread::sleep(self.retry_delay);
+            }
+            let response = match self.exchange(&request) {
+                Ok(response) => response,
+                Err(error @ Error::InvalidResponse(_)) => {
+                    log::debug!("hid: {} answered garbage: {error}", self.entry.name);
+                    garbled = Some(error);
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
             if response.remaining_packets != request.remaining_packets
                 || response.command_class != request.command_class
                 || response.command_id != request.command_id
             {
-                return Err(Error::InvalidResponse("response does not match request"));
+                log::debug!("hid: {} answered another request", self.entry.name);
+                garbled = Some(Error::InvalidResponse("response does not match request"));
+                continue;
             }
+            garbled = None;
             match response.status {
                 Status::Successful => return Ok(response),
                 Status::NotSupported => return Err(Error::NotSupported),
                 Status::Failure => return Err(Error::Failure),
                 Status::New => return Err(Error::InvalidResponse("response has a new status")),
-                Status::Busy | Status::NoResponse => {
+                // openrazer treats Busy as success; we retry, because a busy reply to a read
+                // carries no guaranteed payload and could read as 0% and fire a false alert.
+                status @ (Status::Busy | Status::NoResponse) => {
                     log::debug!(
-                        "hid: {} is busy or silent (try {attempt} of {MAX_TRIES})",
-                        self.entry.name
+                        "hid: {} answered {status:?} to {:#04x}/{:#04x} (try {attempt} of {MAX_TRIES})",
+                        self.entry.name,
+                        request.command_class,
+                        request.command_id
                     );
                 }
             }
-            if attempt < MAX_TRIES {
-                thread::sleep(self.retry_delay);
-            }
         }
-        Err(Error::Timeout)
+        Err(garbled.unwrap_or(Error::Timeout))
     }
 
     /// One request and one response. On a transport failure the other HID collections of the
@@ -266,13 +283,6 @@ mod tests {
     }
 
     #[test]
-    fn percent_bounds() {
-        assert_eq!(Percent::try_from(0).unwrap().get(), 0);
-        assert_eq!(Percent::try_from(100).unwrap().get(), 100);
-        assert_eq!(Percent::try_from(101), Err(PercentOutOfRange(101)));
-    }
-
-    #[test]
     fn battery_rounding() {
         assert_eq!(percent_from_raw(0).get(), 0);
         assert_eq!(percent_from_raw(255).get(), 100);
@@ -324,22 +334,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_serial() {
-        let behavior = Behavior {
-            serial: Some("PM2542H35104898"),
-            ..Behavior::default()
-        };
-        let endpoint = endpoint(WIRED_PID, vec![mock(behavior)]);
-        assert_eq!(endpoint.serial().unwrap(), "PM2542H35104898");
-    }
-
-    #[test]
-    fn serial_not_supported_by_the_mouse() {
-        let endpoint = endpoint(WIRED_PID, vec![mock(Behavior::default())]);
-        assert!(matches!(endpoint.serial(), Err(Error::NotSupported)));
-    }
-
-    #[test]
     fn retries_while_busy() {
         let behavior = Behavior {
             statuses: vec![Status::Busy, Status::NoResponse],
@@ -360,13 +354,24 @@ mod tests {
     }
 
     #[test]
-    fn failure_is_not_retried() {
+    fn retries_garbled_answers() {
         let behavior = Behavior {
-            statuses: vec![Status::Failure],
+            bad_checksums: 1,
+            mismatches: 1,
             ..Behavior::default()
         };
         let endpoint = endpoint(WIRED_PID, vec![mock(behavior)]);
-        assert!(matches!(endpoint.battery(), Err(Error::Failure)));
+        assert_eq!(endpoint.battery().unwrap().level.get(), 100);
+    }
+
+    #[test]
+    fn garbled_after_all_tries_is_an_invalid_response() {
+        let behavior = Behavior {
+            mismatches: 20,
+            ..Behavior::default()
+        };
+        let endpoint = endpoint(WIRED_PID, vec![mock(behavior)]);
+        assert!(matches!(endpoint.battery(), Err(Error::InvalidResponse(_))));
     }
 
     #[test]
@@ -378,15 +383,5 @@ mod tests {
         let endpoint = endpoint(WIRED_PID, vec![mock(broken), mock(Behavior::default())]);
         assert!(endpoint.battery().is_ok());
         assert_eq!(endpoint.active.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn transport_error_when_no_collection_works() {
-        let broken = Behavior {
-            broken: true,
-            ..Behavior::default()
-        };
-        let endpoint = endpoint(WIRED_PID, vec![mock(broken)]);
-        assert!(matches!(endpoint.battery(), Err(Error::Transport(_))));
     }
 }

@@ -120,12 +120,12 @@ impl Transport for HidTransport {
 pub(crate) mod mock {
     //! A fake mouse and a fake bus for tests of the device and discovery code.
 
-    use std::sync::Mutex;
-    use std::sync::PoisonError;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex, PoisonError};
 
     use super::{Bus, Collection, Transport};
     use crate::error::{Error, Result};
-    use crate::report::{Command, REPORT_LEN, Report, Status};
+    use crate::report::{CRC_INDEX, Command, REPORT_LEN, Report, Status};
 
     /// What a mock transport answers to the requests it receives.
     #[derive(Clone, Debug)]
@@ -140,6 +140,10 @@ pub(crate) mod mock {
         pub broken: bool,
         /// Statuses returned, one per request, before answering normally.
         pub statuses: Vec<Status>,
+        /// Number of answers with a broken checksum before answering normally.
+        pub bad_checksums: usize,
+        /// Number of answers to another command before answering normally.
+        pub mismatches: usize,
     }
 
     impl Default for Behavior {
@@ -150,6 +154,8 @@ pub(crate) mod mock {
                 charging: 0,
                 broken: false,
                 statuses: Vec::new(),
+                bad_checksums: 0,
+                mismatches: 0,
             }
         }
     }
@@ -159,13 +165,20 @@ pub(crate) mod mock {
     pub struct MockTransport {
         behavior: Mutex<Behavior>,
         pending: Mutex<Option<[u8; REPORT_LEN]>>,
+        serial_requests: Arc<AtomicUsize>,
     }
 
     impl MockTransport {
         pub fn new(behavior: Behavior) -> Self {
+            Self::counting(behavior, Arc::default())
+        }
+
+        /// Creates a mouse that adds one to `serial_requests` for every serial command it gets.
+        pub fn counting(behavior: Behavior, serial_requests: Arc<AtomicUsize>) -> Self {
             Self {
                 behavior: Mutex::new(behavior),
                 pending: Mutex::new(None),
+                serial_requests,
             }
         }
     }
@@ -188,6 +201,7 @@ pub(crate) mod mock {
             } else if command == (Command::CHARGING.class, Command::CHARGING.id) {
                 response.arguments[1] = behavior.charging;
             } else if command == (Command::SERIAL.class, Command::SERIAL.id) {
+                self.serial_requests.fetch_add(1, Ordering::Relaxed);
                 match behavior.serial {
                     Some(serial) => {
                         response.arguments[..serial.len()].copy_from_slice(serial.as_bytes());
@@ -198,7 +212,16 @@ pub(crate) mod mock {
             if !behavior.statuses.is_empty() {
                 response.status = behavior.statuses.remove(0);
             }
-            *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Some(response.encode());
+            if behavior.mismatches > 0 {
+                behavior.mismatches -= 1;
+                response.command_id ^= 1;
+            }
+            let mut bytes = response.encode();
+            if behavior.bad_checksums > 0 {
+                behavior.bad_checksums -= 1;
+                bytes[CRC_INDEX] ^= 0xFF;
+            }
+            *self.pending.lock().unwrap_or_else(PoisonError::into_inner) = Some(bytes);
             Ok(())
         }
 
@@ -215,6 +238,7 @@ pub(crate) mod mock {
     #[derive(Debug, Default)]
     pub struct MockBus {
         entries: Vec<(Collection, Behavior)>,
+        serial_requests: Arc<AtomicUsize>,
     }
 
     impl MockBus {
@@ -228,6 +252,28 @@ pub(crate) mod mock {
                 usage: usage.1,
             };
             self.entries.push((collection, behavior));
+        }
+
+        /// Unplugs the collection with the given path.
+        pub fn remove(&mut self, path: &str) {
+            self.entries
+                .retain(|(collection, _)| collection.path != path);
+        }
+
+        /// Changes how the collection with the given path answers from the next open on.
+        pub fn set_behavior(&mut self, path: &str, behavior: Behavior) {
+            if let Some((_, current)) = self
+                .entries
+                .iter_mut()
+                .find(|(collection, _)| collection.path == path)
+            {
+                *current = behavior;
+            }
+        }
+
+        /// How many serial commands the transports of this bus have received so far.
+        pub fn serial_requests(&self) -> usize {
+            self.serial_requests.load(Ordering::Relaxed)
         }
     }
 
@@ -246,7 +292,10 @@ pub(crate) mod mock {
                 .iter()
                 .find(|(candidate, _)| candidate == collection)
                 .ok_or(Error::Timeout)?;
-            Ok(Box::new(MockTransport::new(behavior.clone())))
+            Ok(Box::new(MockTransport::counting(
+                behavior.clone(),
+                Arc::clone(&self.serial_requests),
+            )))
         }
     }
 }

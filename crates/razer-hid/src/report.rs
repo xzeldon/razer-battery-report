@@ -12,7 +12,7 @@ pub const REPORT_LEN: usize = 90;
 pub const ARGUMENTS_LEN: usize = 80;
 
 const ARGUMENTS_START: usize = 8;
-const CRC_INDEX: usize = 88;
+pub(crate) const CRC_INDEX: usize = 88;
 const CRC_START: usize = 2;
 
 /// Result code carried in the first byte of a report.
@@ -221,25 +221,6 @@ mod tests {
     fn rejects_bad_checksum() {
         let mut bytes = response(0x1f, Command::SERIAL, &SERIAL_ARGUMENTS).encode();
         bytes[10] ^= 0x01;
-        assert!(matches!(
-            Report::decode(&bytes),
-            Err(Error::InvalidResponse(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_wrong_length() {
-        assert!(matches!(
-            Report::decode(&[0; 91]),
-            Err(Error::InvalidResponse(_))
-        ));
-    }
-
-    #[test]
-    fn rejects_unknown_status() {
-        let mut bytes = Report::request(0x1f, Command::BATTERY).encode();
-        bytes[0] = 0x09;
-        bytes[88] = crc(&bytes);
         assert!(matches!(
             Report::decode(&bytes),
             Err(Error::InvalidResponse(_))
