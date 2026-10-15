@@ -34,6 +34,8 @@ Show your wireless Razer devices battery levels in your system tray.
 | Razer Viper Ultimate (Wireless)                            | 1532:007B   |
 | Razer Orochi V2 (Receiver)                                 | 1532:0094   |
 | Razer Orochi V2 (Bluetooth)                                | 1532:0095   |
+| Razer Viper V4 Pro (Wired)                                 | 1532:00E5   |
+| Razer Viper V4 Pro (Wireless)                              | 1532:00E6   |
 
 > **Note:** If your device is not listed, you can add support for it yourself! Please see the [Adding new devices yourself](#adding-new-devices-yourself) section below. Contributions and Pull Requests are welcome!
 
