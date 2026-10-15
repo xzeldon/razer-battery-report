@@ -9,13 +9,13 @@ authors = ["xzeldon <contact@zeldon.ru>"]
 
 [workspace.dependencies]
 # Communicate with HID devices
-hidapi = "2.6.4"
+hidapi = "2.6.7"
 
 # Error types for libraries
 thiserror = "2"
 
 # Logging facade
-log = "0.4.29"
+log = "0.4.34"
 
 # Logging to rotating files in the per-user log directory
 flexi_logger = { version = "0.31.10", default-features = false }
@@ -38,8 +38,8 @@ directories = "6"
 razer-hid = { path = "crates/razer-hid", version = "0.5.0" }
 
 # Event Loop and Tray Icon
-tao = "0.35.3"
-tray-icon = "0.24.1"
+tao = "0.37.1"
+tray-icon = "0.26.1"
 
 # Build script: renders the Lucide SVG sources into tray icon masks (no text, fonts or raster images)
 resvg = { version = "0.48.1", default-features = false }
@@ -63,7 +63,7 @@ auto-launch = "0.6.0"
 opener = "0.9.0"
 
 # Desktop notifications
-notify-rust = "4.11.7"
+notify-rust = "4.18.2"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -73,7 +73,6 @@ missing_debug_implementations = "warn"
 pedantic = { level = "warn", priority = -1 }
 must_use_candidate = "allow"
 missing_errors_doc = "allow"
-# AGENTS.md writes a two-arm choice on a bool as `match flag { true => …, false => … }`.
 match_bool = "allow"
 
 # Slower builds, faster executables
