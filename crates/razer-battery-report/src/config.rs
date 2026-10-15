@@ -4,17 +4,17 @@ use std::fs;
 use std::io::ErrorKind;
 
 use anyhow::Context as _;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
 /// Threshold used when the file has none or an unsupported one.
 const DEFAULT_LOW_THRESHOLD: u8 = 15;
 /// The thresholds the tray menu offers.
-const ALLOWED_LOW_THRESHOLDS: [u8; 4] = [10, 15, 20, 25];
+pub const ALLOWED_LOW_THRESHOLDS: [u8; 4] = [10, 15, 20, 25];
 
 /// Settings of the app. Missing keys take their defaults and unknown keys are ignored.
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
     /// Whether battery events are shown as desktop notifications.
@@ -25,6 +25,8 @@ pub struct Config {
     pub autostart: bool,
     /// Serial of the mouse shown in the tray.
     pub selected: Option<String>,
+    /// Whether the tray icon fills the mouse body by the battery level.
+    pub show_level: bool,
 }
 
 impl Default for Config {
@@ -34,6 +36,7 @@ impl Default for Config {
             low_threshold: DEFAULT_LOW_THRESHOLD,
             autostart: false,
             selected: None,
+            show_level: true,
         }
     }
 }
@@ -58,6 +61,18 @@ impl Config {
             log::warn!("config: {}: {error:#}", path.display());
             Self::default()
         })
+    }
+
+    pub fn save(&self) -> anyhow::Result<()> {
+        let path = paths::config_file().context("no per-user config directory")?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).context("cannot create config directory")?;
+        }
+        fs::write(&path, self.to_text()?).context("cannot write config")
+    }
+
+    fn to_text(&self) -> anyhow::Result<String> {
+        toml::to_string(self).context("cannot serialise config")
     }
 
     /// Parses the text of a config file. An unsupported threshold is replaced by the default.
@@ -88,6 +103,18 @@ mod tests {
                 ..Config::default()
             }
         );
+    }
+
+    #[test]
+    fn saved_text_parses_back_to_the_same_config() {
+        let config = Config {
+            notifications: false,
+            low_threshold: 25,
+            autostart: true,
+            selected: Some("PM1".to_owned()),
+            show_level: false,
+        };
+        assert_eq!(Config::parse(&config.to_text().unwrap()).unwrap(), config);
     }
 
     #[test]

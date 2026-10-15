@@ -1,0 +1,596 @@
+//! The tray app: the icon, its tooltip and menu, and the event loop that ties them to the poller.
+
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use anyhow::Context as _;
+use razer_hid::{Hid, Percent};
+use tao::event::{Event, StartCause};
+use tao::event_loop::{ControlFlow, EventLoopBuilder};
+use tray_icon::menu::{
+    CheckMenuItem, IsMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu,
+};
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+
+use crate::cli;
+use crate::config::{ALLOWED_LOW_THRESHOLDS, Config};
+use crate::icon::{self, Shape};
+use crate::logging;
+use crate::monitor::{self, Level, Reading};
+use crate::paths;
+use crate::platform::{self, Theme};
+use crate::poller;
+
+/// Keeps a second tray from starting.
+const LOCK_FILE: &str = "tray.lock";
+/// How often the taskbar theme is read again, because the OS sends no event for it.
+const THEME_CHECK_INTERVAL: Duration = Duration::from_mins(1);
+const SEARCHING_TEXT: &str = "Searching for Razer mice…";
+const NO_MOUSE_TEXT: &str = "No Razer mouse found";
+const NO_MOUSE_ITEM: &str = "No mouse found";
+const DEVICE_ID_PREFIX: &str = "device:";
+const THRESHOLD_ID_PREFIX: &str = "threshold:";
+const NOTIFICATIONS_ID: &str = "notifications";
+const SHOW_LEVEL_ID: &str = "show_level";
+const AUTOSTART_ID: &str = "autostart";
+const OPEN_LOG_ID: &str = "open_log";
+const EXIT_ID: &str = "exit";
+
+const DARK_NORMAL: [u8; 3] = [0xFF, 0xFF, 0xFF];
+const DARK_LOW: [u8; 3] = [0xFA, 0xCC, 0x15];
+const DARK_CRITICAL: [u8; 3] = [0xF8, 0x71, 0x71];
+const LIGHT_NORMAL: [u8; 3] = [0x1C, 0x1C, 0x1C];
+const LIGHT_LOW: [u8; 3] = [0xCA, 0x8A, 0x04];
+const LIGHT_CRITICAL: [u8; 3] = [0xDC, 0x26, 0x26];
+
+/// What wakes the event loop besides the OS.
+#[derive(Debug)]
+enum UserEvent {
+    Readings(Vec<Reading>),
+    Menu(MenuEvent),
+}
+
+/// A menu entry, recovered from its id.
+#[derive(Debug, PartialEq, Eq)]
+enum Action {
+    Select(String),
+    Notifications,
+    Threshold(u8),
+    ShowLevel,
+    Autostart,
+    OpenLog,
+    Exit,
+}
+
+impl Action {
+    fn id(&self) -> String {
+        match self {
+            Self::Select(serial) => format!("{DEVICE_ID_PREFIX}{serial}"),
+            Self::Notifications => NOTIFICATIONS_ID.to_owned(),
+            Self::Threshold(percent) => format!("{THRESHOLD_ID_PREFIX}{percent}"),
+            Self::ShowLevel => SHOW_LEVEL_ID.to_owned(),
+            Self::Autostart => AUTOSTART_ID.to_owned(),
+            Self::OpenLog => OPEN_LOG_ID.to_owned(),
+            Self::Exit => EXIT_ID.to_owned(),
+        }
+    }
+
+    fn parse(id: &str) -> Option<Self> {
+        if let Some(serial) = id.strip_prefix(DEVICE_ID_PREFIX) {
+            return Some(Self::Select(serial.to_owned()));
+        }
+        if let Some(percent) = id.strip_prefix(THRESHOLD_ID_PREFIX) {
+            return percent.parse().ok().map(Self::Threshold);
+        }
+        match id {
+            NOTIFICATIONS_ID => Some(Self::Notifications),
+            SHOW_LEVEL_ID => Some(Self::ShowLevel),
+            AUTOSTART_ID => Some(Self::Autostart),
+            OPEN_LOG_ID => Some(Self::OpenLog),
+            EXIT_ID => Some(Self::Exit),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Look {
+    shape: Shape,
+    color: [u8; 3],
+    badge_color: [u8; 3],
+    fill: Option<Percent>,
+}
+
+struct View {
+    icon: Icon,
+    tooltip: String,
+    menu: Menu,
+}
+
+struct App {
+    config: Config,
+    readings: Option<Vec<Reading>>,
+    theme: Theme,
+    icon_size: u32,
+    tray: Option<TrayIcon>,
+}
+
+impl App {
+    fn shown(&self) -> Option<&Reading> {
+        self.readings
+            .as_deref()
+            .and_then(|readings| shown(readings, self.config.selected.as_deref()))
+    }
+
+    fn low_threshold(&self) -> Percent {
+        low_threshold(&self.config)
+    }
+
+    fn view(&self) -> anyhow::Result<View> {
+        let look = look(
+            self.shown(),
+            self.readings.is_some(),
+            self.low_threshold(),
+            self.config.show_level,
+            self.theme,
+        );
+        let (rgba, side) = icon::render(
+            look.shape,
+            look.color,
+            look.badge_color,
+            look.fill,
+            self.icon_size,
+        );
+        Ok(View {
+            icon: Icon::from_rgba(rgba, side, side).context("cannot build the icon")?,
+            tooltip: tooltip(self.readings.as_deref(), self.shown()),
+            menu: self.menu().context("cannot build the menu")?,
+        })
+    }
+
+    fn menu(&self) -> tray_icon::menu::Result<Menu> {
+        let menu = Menu::new();
+        match self.readings.as_deref() {
+            None => menu.append(&MenuItem::new(SEARCHING_TEXT, false, None))?,
+            Some([]) => menu.append(&MenuItem::new(NO_MOUSE_ITEM, false, None))?,
+            Some(readings) => {
+                let shown_key = self.shown().map(|reading| &reading.key);
+                for reading in readings {
+                    let several = readings.len() > 1;
+                    let text = format!("{} — {}", reading.model, status(reading));
+                    let id = reading
+                        .serial
+                        .clone()
+                        .map_or_else(String::new, |serial| Action::Select(serial).id());
+                    let enabled = several && reading.serial.is_some();
+                    let checked = shown_key == Some(&reading.key);
+                    menu.append(&CheckMenuItem::with_id(id, text, enabled, checked, None))?;
+                }
+            }
+        }
+        menu.append(&PredefinedMenuItem::separator())?;
+        let config = &self.config;
+        menu.append(&switch(
+            &Action::Notifications,
+            "Notifications",
+            config.notifications,
+        ))?;
+        let thresholds = ALLOWED_LOW_THRESHOLDS.map(|percent| {
+            let checked = percent == config.low_threshold;
+            switch(&Action::Threshold(percent), &format!("{percent}%"), checked)
+        });
+        let items: Vec<&dyn IsMenuItem> = thresholds
+            .iter()
+            .map(|item| item as &dyn IsMenuItem)
+            .collect();
+        menu.append(&Submenu::with_items("Low battery", true, &items)?)?;
+        menu.append(&switch(
+            &Action::ShowLevel,
+            "Show level on icon",
+            config.show_level,
+        ))?;
+        menu.append(&switch(
+            &Action::Autostart,
+            "Start at login",
+            config.autostart,
+        ))?;
+        menu.append(&PredefinedMenuItem::separator())?;
+        menu.append(&MenuItem::with_id(
+            Action::OpenLog.id(),
+            "Open log",
+            true,
+            None,
+        ))?;
+        menu.append(&MenuItem::with_id(Action::Exit.id(), "Exit", true, None))?;
+        Ok(menu)
+    }
+
+    /// Call it once, when the event loop starts.
+    fn create_tray(&mut self) -> anyhow::Result<()> {
+        let view = self.view()?;
+        let tray = TrayIconBuilder::new()
+            .with_icon(view.icon)
+            .with_tooltip(view.tooltip)
+            .with_menu(Box::new(view.menu))
+            .build()
+            .context("cannot create the tray icon")?;
+        self.tray = Some(tray);
+        Ok(())
+    }
+
+    fn refresh(&mut self) {
+        let view = match self.view() {
+            Ok(view) => view,
+            Err(error) => {
+                log::warn!("tray: cannot redraw: {error:#}");
+                return;
+            }
+        };
+        let Some(tray) = &self.tray else {
+            return;
+        };
+        if let Err(error) = tray.set_icon(Some(view.icon)) {
+            log::warn!("tray: cannot set the icon: {error}");
+        }
+        if let Err(error) = tray.set_tooltip(Some(view.tooltip)) {
+            log::warn!("tray: cannot set the tooltip: {error}");
+        }
+        tray.set_menu(Some(Box::new(view.menu)));
+    }
+
+    fn on_readings(&mut self, current: Vec<Reading>) {
+        let events = monitor::events(self.readings.as_deref(), &current, self.low_threshold());
+        for event in &events {
+            log::info!("monitor: {event}");
+            if self.config.notifications {
+                let shown = platform::notification().summary(&event.to_string()).show();
+                if let Err(error) = shown {
+                    log::warn!("tray: cannot show a notification: {error}");
+                }
+            }
+            if matches!(event, monitor::Event::Connected { .. }) {
+                log_diagnostics(&self.config);
+            }
+        }
+        self.readings = Some(current);
+        self.refresh();
+    }
+
+    /// Applies a click on a menu entry. Returns `false` when the app should exit.
+    fn on_action(&mut self, action: Action) -> bool {
+        match action {
+            Action::Select(serial) => self.change(|config| config.selected = Some(serial)),
+            Action::Notifications => self.change(|config| config.notifications ^= true),
+            Action::Threshold(percent) => self.change(|config| config.low_threshold = percent),
+            Action::ShowLevel => self.change(|config| config.show_level ^= true),
+            Action::Autostart => {
+                let enabled = !self.config.autostart;
+                match platform::set_autostart(enabled) {
+                    Ok(()) => self.change(|config| config.autostart = enabled),
+                    Err(error) => {
+                        log::warn!("tray: cannot change autostart: {error:#}");
+                        // The menu has already toggled the checkbox; put it back.
+                        self.refresh();
+                    }
+                }
+            }
+            Action::OpenLog => open_log(),
+            Action::Exit => return false,
+        }
+        true
+    }
+
+    fn change(&mut self, apply: impl FnOnce(&mut Config)) {
+        apply(&mut self.config);
+        if let Err(error) = self.config.save() {
+            log::warn!("tray: cannot save the config: {error:#}");
+        }
+        self.refresh();
+    }
+}
+
+/// Runs the tray until the user exits. Returns early, with `Ok`, when another tray is running.
+pub fn run(config: Config) -> anyhow::Result<()> {
+    let Some(lock) = acquire_lock()? else {
+        log::info!("tray: already running");
+        return Ok(());
+    };
+    let hid = Hid::new().context("cannot initialise hid")?;
+    if let Err(error) = platform::set_autostart(config.autostart) {
+        log::warn!("tray: cannot apply autostart: {error:#}");
+    }
+
+    let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    let proxy = event_loop.create_proxy();
+    let menu_proxy = proxy.clone();
+    MenuEvent::set_event_handler(Some(move |event| {
+        let _ = menu_proxy.send_event(UserEvent::Menu(event));
+    }));
+    poller::spawn(hid, move |readings| {
+        proxy.send_event(UserEvent::Readings(readings)).is_ok()
+    });
+
+    let mut app = App {
+        theme: platform::taskbar_theme(),
+        icon_size: 0,
+        readings: None,
+        tray: None,
+        config,
+    };
+    let mut next_theme_check = Instant::now() + THEME_CHECK_INTERVAL;
+    event_loop.run(move |event, _, control_flow| {
+        let _ = &lock;
+        match event {
+            Event::NewEvents(StartCause::Init) => {
+                platform::register_notifications(icon::APP_ICON_PNG);
+                app.icon_size = platform::tray_icon_size();
+                if let Err(error) = app.create_tray() {
+                    log::error!("tray: {error:#}");
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                }
+                log::info!("tray: started");
+                log_diagnostics(&app.config);
+            }
+            Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                next_theme_check = Instant::now() + THEME_CHECK_INTERVAL;
+                let theme = platform::taskbar_theme();
+                if theme != app.theme {
+                    app.theme = theme;
+                    app.refresh();
+                }
+            }
+            Event::UserEvent(UserEvent::Readings(readings)) => app.on_readings(readings),
+            Event::UserEvent(UserEvent::Menu(event)) => {
+                let keep_running =
+                    Action::parse(&event.id.0).is_none_or(|action| app.on_action(action));
+                if !keep_running {
+                    app.tray = None;
+                    log::info!("tray: exiting");
+                    log::logger().flush();
+                    *control_flow = ControlFlow::Exit;
+                    return;
+                }
+            }
+            _ => {}
+        }
+        *control_flow = ControlFlow::WaitUntil(next_theme_check);
+    })
+}
+
+/// `None` when another tray holds the lock; the lock lasts as long as the file is open.
+fn acquire_lock() -> anyhow::Result<Option<File>> {
+    let dir = paths::data_dir().context("no per-user data directory")?;
+    fs::create_dir_all(&dir).context("cannot create data directory")?;
+    let path = dir.join(LOCK_FILE);
+    let file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&path)
+        .with_context(|| format!("cannot open {}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Error(error)) => {
+            Err(error).with_context(|| format!("cannot lock {}", path.display()))
+        }
+    }
+}
+
+/// Runs on its own thread because the report reads the hardware.
+fn log_diagnostics(config: &Config) {
+    let config = config.clone();
+    thread::spawn(move || log::info!("tray: diagnostics:\n{}", cli::diagnose(&config)));
+}
+
+fn open_log() {
+    let Some(path) = logging::current_file() else {
+        log::warn!("tray: no per-user log directory");
+        return;
+    };
+    if let Err(error) = platform::open(&path) {
+        log::warn!("tray: {error:#}");
+    }
+}
+
+fn switch(action: &Action, text: &str, checked: bool) -> CheckMenuItem {
+    CheckMenuItem::with_id(action.id(), text, true, checked, None)
+}
+
+/// Cannot fail: the config only ever holds supported thresholds.
+fn low_threshold(config: &Config) -> Percent {
+    Percent::try_from(config.low_threshold).expect("the config holds a valid threshold")
+}
+
+/// The mouse to show: the one with the `selected` serial, else the first.
+fn shown<'a>(readings: &'a [Reading], selected: Option<&str>) -> Option<&'a Reading> {
+    selected
+        .and_then(|serial| {
+            readings
+                .iter()
+                .find(|reading| reading.serial.as_deref() == Some(serial))
+        })
+        .or(readings.first())
+}
+
+fn status(reading: &Reading) -> String {
+    match (reading.battery, reading.asleep) {
+        (Some(battery), false) => cli::battery_text(battery),
+        (Some(battery), true) => format!("{} (asleep)", cli::battery_text(battery)),
+        (None, true) => "asleep".to_owned(),
+        (None, false) => "battery unknown".to_owned(),
+    }
+}
+
+/// The tooltip for the shown mouse; `readings` is `None` before the first scan.
+fn tooltip(readings: Option<&[Reading]>, shown: Option<&Reading>) -> String {
+    match (readings, shown) {
+        (None, _) => SEARCHING_TEXT.to_owned(),
+        (Some(_), None) => NO_MOUSE_TEXT.to_owned(),
+        (Some(_), Some(reading)) => format!("{}: {}", reading.model, status(reading)),
+    }
+}
+
+/// The icon colour for a taskbar theme and a battery severity.
+fn palette(theme: Theme, level: Level) -> [u8; 3] {
+    match (theme, level) {
+        (Theme::Dark, Level::Normal) => DARK_NORMAL,
+        (Theme::Dark, Level::Low) => DARK_LOW,
+        (Theme::Dark, Level::Critical) => DARK_CRITICAL,
+        (Theme::Light, Level::Normal) => LIGHT_NORMAL,
+        (Theme::Light, Level::Low) => LIGHT_LOW,
+        (Theme::Light, Level::Critical) => LIGHT_CRITICAL,
+    }
+}
+
+/// How the icon looks for the shown mouse (`None` when there is none). `scanned` tells whether
+/// the first scan has finished; before that the icon is a plain mouse.
+fn look(
+    shown: Option<&Reading>,
+    scanned: bool,
+    low_threshold: Percent,
+    show_level: bool,
+    theme: Theme,
+) -> Look {
+    let normal = palette(theme, Level::Normal);
+    let plain = |shape| Look {
+        shape,
+        color: normal,
+        badge_color: normal,
+        fill: None,
+    };
+    if !scanned {
+        return plain(Shape::Mouse);
+    }
+    let Some(reading) = shown else {
+        return plain(Shape::Off);
+    };
+    let shape = match (reading.battery, reading.asleep) {
+        (Some(battery), _) if battery.charging == Some(true) => Shape::Charging,
+        (_, true) => Shape::Asleep,
+        _ => Shape::Mouse,
+    };
+    let level = reading.battery.map_or(Level::Normal, |battery| {
+        monitor::level(battery, low_threshold)
+    });
+    let color = palette(theme, level);
+    Look {
+        shape,
+        color,
+        // The charging bolt borrows the low battery yellow.
+        badge_color: match shape {
+            Shape::Charging => palette(theme, Level::Low),
+            _ => color,
+        },
+        fill: reading
+            .battery
+            .filter(|_| show_level)
+            .map(|battery| battery.level),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use razer_hid::Battery;
+
+    use super::*;
+    use crate::monitor::DeviceKey;
+
+    fn percent(value: u8) -> Percent {
+        Percent::try_from(value).unwrap()
+    }
+
+    fn reading(serial: Option<&str>, level: Option<(u8, Option<bool>)>, asleep: bool) -> Reading {
+        Reading {
+            key: DeviceKey::for_test(serial.unwrap_or("path")),
+            model: "Mouse",
+            serial: serial.map(str::to_owned),
+            battery: level.map(|(level, charging)| Battery {
+                level: percent(level),
+                charging,
+            }),
+            asleep,
+        }
+    }
+
+    #[test]
+    fn icon_look() {
+        let look = |shown: Option<&Reading>, scanned, show_level, theme| {
+            look(shown, scanned, percent(15), show_level, theme)
+        };
+        let normal = reading(Some("a"), Some((80, Some(false))), false);
+        let charging = reading(Some("a"), Some((50, Some(true))), false);
+        let asleep = reading(Some("a"), Some((40, None)), true);
+        let low = reading(Some("a"), Some((12, Some(false))), false);
+        let (dark, light) = (Theme::Dark, Theme::Light);
+
+        let cases = [
+            (
+                look(None, false, true, dark),
+                Shape::Mouse,
+                DARK_NORMAL,
+                None,
+            ),
+            (look(None, true, true, dark), Shape::Off, DARK_NORMAL, None),
+            (
+                look(Some(&normal), true, true, dark),
+                Shape::Mouse,
+                DARK_NORMAL,
+                Some(80),
+            ),
+            (
+                look(Some(&charging), true, true, dark),
+                Shape::Charging,
+                DARK_NORMAL,
+                Some(50),
+            ),
+            (
+                look(Some(&asleep), true, true, dark),
+                Shape::Asleep,
+                DARK_NORMAL,
+                Some(40),
+            ),
+            (
+                look(Some(&low), true, true, light),
+                Shape::Mouse,
+                LIGHT_LOW,
+                Some(12),
+            ),
+            (
+                look(Some(&low), true, false, dark),
+                Shape::Mouse,
+                DARK_LOW,
+                None,
+            ),
+        ];
+        for (got, shape, color, fill) in cases {
+            assert_eq!(
+                (got.shape, got.color, got.fill),
+                (shape, color, fill.map(percent))
+            );
+        }
+        assert_eq!(
+            look(Some(&charging), true, true, dark).badge_color,
+            DARK_LOW
+        );
+        assert_eq!(
+            look(Some(&asleep), true, true, light).badge_color,
+            LIGHT_NORMAL
+        );
+    }
+
+    #[test]
+    fn shown_mouse_is_the_selected_one_else_the_first() {
+        let readings = [
+            reading(Some("a"), None, false),
+            reading(Some("b"), None, false),
+        ];
+        let serial = |selected| shown(&readings, selected).and_then(|r| r.serial.as_deref());
+        assert_eq!(serial(Some("b")), Some("b"));
+        assert_eq!(serial(Some("gone")), Some("a"));
+        assert_eq!(serial(None), Some("a"));
+        assert!(shown(&[], Some("a")).is_none());
+    }
+}

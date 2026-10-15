@@ -54,6 +54,17 @@ pub struct Reading {
     pub asleep: bool,
 }
 
+/// How worrying a battery reading is. Shared by the notification rules and the tray icon colour.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Level {
+    /// Nothing to worry about, or the mouse is charging.
+    Normal,
+    /// At or below the low threshold, not charging.
+    Low,
+    /// Nearly empty, not charging.
+    Critical,
+}
+
 /// Something worth telling the user.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
@@ -80,6 +91,19 @@ impl fmt::Display for Event {
             }
             Self::Full { model } => write!(f, "{model} is fully charged"),
         }
+    }
+}
+
+/// The severity of `battery`. A charging mouse is always normal; an unknown charging state counts
+/// as not charging.
+pub fn level(battery: Battery, low_threshold: Percent) -> Level {
+    if battery.charging == Some(true) {
+        return Level::Normal;
+    }
+    match battery.level {
+        level if level.get() <= CRITICAL_LEVEL => Level::Critical,
+        level if level <= low_threshold => Level::Low,
+        _ => Level::Normal,
     }
 }
 
@@ -131,11 +155,12 @@ fn battery_event(
 ) -> Option<Event> {
     let level = now.level;
     let charging = now.charging == Some(true);
-    if !charging && level.get() <= CRITICAL_LEVEL {
-        return Some(Event::Critical { model, level });
-    }
-    if !charging && level <= low_threshold && was.is_none_or(|was| was.level > low_threshold) {
-        return Some(Event::Low { model, level });
+    match self::level(now, low_threshold) {
+        Level::Critical => return Some(Event::Critical { model, level }),
+        Level::Low if was.is_none_or(|was| was.level > low_threshold) => {
+            return Some(Event::Low { model, level });
+        }
+        Level::Low | Level::Normal => {}
     }
     let was_full =
         was.is_some_and(|was| was.level.get() == FULL_LEVEL && was.charging == Some(true));
@@ -190,6 +215,15 @@ mod tests {
             model: "Mouse",
             level: percent(level),
         }
+    }
+
+    #[test]
+    fn level_follows_charging_and_thresholds() {
+        let at = |level, charging| super::level(battery(level, charging), percent(15));
+        assert_eq!(at(3, Some(true)), Level::Normal);
+        assert_eq!(at(5, None), Level::Critical);
+        assert_eq!(at(15, Some(false)), Level::Low);
+        assert_eq!(at(16, Some(false)), Level::Normal);
     }
 
     const NONE: [Event; 0] = [];

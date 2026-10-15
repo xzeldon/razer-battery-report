@@ -7,14 +7,26 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+auto-launch.workspace = true
 clap.workspace = true
 directories.workspace = true
 flexi_logger.workspace = true
 log.workspace = true
+notify-rust.workspace = true
+opener.workspace = true
 razer-hid.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tao.workspace = true
 toml.workspace = true
+tray-icon.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys.workspace = true
+
+[build-dependencies]
+embed-manifest.workspace = true
+resvg.workspace = true
 
 [lints]
 workspace = true

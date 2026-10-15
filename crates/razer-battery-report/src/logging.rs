@@ -1,7 +1,7 @@
 //! Logging to a rotating file in the per-user log directory.
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use flexi_logger::{
     Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, FlexiLoggerError, Logger, LoggerHandle,
@@ -14,6 +14,8 @@ use crate::paths;
 const DEFAULT_LEVEL: &str = "info";
 /// File name of the log without the extension.
 const LOG_BASENAME: &str = "razer-battery-report";
+/// The name `flexi_logger` gives the log being written when timestamps are suppressed.
+const CURRENT_LOG_FILE: &str = "razer-battery-report_rCURRENT.log";
 /// Size at which the log file is rotated.
 const ROTATE_AT_BYTES: u64 = 1024 * 1024;
 /// Number of rotated files kept next to the current one.
@@ -30,6 +32,11 @@ pub fn init() -> Option<LoggerHandle> {
             .inspect_err(|error| eprintln!("logging: cannot start: {error}"))
             .ok()
     })
+}
+
+/// The log file being written, or `None` when the OS reports no home directory.
+pub fn current_file() -> Option<PathBuf> {
+    paths::log_dir().map(|dir| dir.join(CURRENT_LOG_FILE))
 }
 
 /// Starts file logging, or says on stderr why it cannot.

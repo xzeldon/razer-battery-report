@@ -1,6 +1,5 @@
 //! The background thread that keeps the list of readings up to date.
 
-use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -36,18 +35,13 @@ enum Probe {
     Failed,
 }
 
-/// Starts the polling thread and returns the channel it reports on. The bus is scanned every
-/// five seconds. The battery of a mouse is read when it appears, on every scan while it is asleep
-/// or has no reading yet, and for all mice every five minutes. The first list is sent after the
-/// first scan, even when empty; later lists are sent only when they differ from the previous
-/// one. The thread ends when the receiver is dropped.
-pub fn spawn(hid: Hid) -> Receiver<Vec<Reading>> {
-    let (sender, receiver) = mpsc::channel();
-    thread::spawn(move || run(&hid, &sender));
-    receiver
+/// Starts the polling thread. `sink` gets the first list after the first scan, even when empty,
+/// then every list that changed; the thread ends when it returns `false`.
+pub fn spawn(hid: Hid, sink: impl FnMut(Vec<Reading>) -> bool + Send + 'static) {
+    thread::spawn(move || run(&hid, sink));
 }
 
-fn run(hid: &Hid, sender: &Sender<Vec<Reading>>) {
+fn run(hid: &Hid, mut sink: impl FnMut(Vec<Reading>) -> bool) {
     let mut readings: Vec<Reading> = Vec::new();
     let mut last_sent: Option<Vec<Reading>> = None;
     let mut last_battery_read: Option<Instant> = None;
@@ -67,7 +61,7 @@ fn run(hid: &Hid, sender: &Sender<Vec<Reading>>) {
             Err(error) => log::warn!("poller: cannot list devices: {error}"),
         }
         if last_sent.as_ref() != Some(&readings) {
-            if sender.send(readings.clone()).is_err() {
+            if !sink(readings.clone()) {
                 return;
             }
             last_sent = Some(readings.clone());

@@ -16,7 +16,13 @@ pub fn config_file() -> Option<PathBuf> {
     BaseDirs::new().map(|dirs| dirs.config_dir().join(APP_NAME).join(CONFIG_FILE))
 }
 
+/// Per-user local state of the app (logs, lock file, notification icon), or `None` when the OS
+/// reports no home directory.
+pub fn data_dir() -> Option<PathBuf> {
+    BaseDirs::new().map(|dirs| dirs.data_local_dir().join(APP_NAME))
+}
+
 /// Directory that holds the log files, or `None` when the OS reports no home directory.
 pub fn log_dir() -> Option<PathBuf> {
-    BaseDirs::new().map(|dirs| dirs.data_local_dir().join(APP_NAME).join(LOG_DIR))
+    data_dir().map(|dir| dir.join(LOG_DIR))
 }
