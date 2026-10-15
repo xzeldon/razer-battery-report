@@ -1,6 +1,7 @@
 //! One USB interface of a mouse and the queries it answers.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
@@ -20,6 +21,10 @@ const RAW_BATTERY_FULL: u16 = 255;
 const PERCENT_MAX: u8 = 100;
 /// Index of the argument that carries the battery and charging value.
 const VALUE_ARGUMENT: usize = 1;
+
+/// Held for one request and its answer, so concurrent `Hid` instances never read each other's
+/// answers.
+static EXCHANGE: Mutex<()> = Mutex::new(());
 
 /// A percentage between 0 and 100.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -203,6 +208,7 @@ impl Endpoint {
     /// One request and one response. On a transport failure the other HID collections of the
     /// interface are tried; the one that works is remembered.
     fn exchange(&self, request: &Report) -> Result<Report> {
+        let _turn = EXCHANGE.lock().unwrap_or_else(PoisonError::into_inner);
         let bytes = request.encode();
         let count = self.transports.len();
         let first = self.active.load(Ordering::Relaxed);
