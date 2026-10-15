@@ -14,9 +14,28 @@ hidapi = "2.6.4"
 # Error types for libraries
 thiserror = "2"
 
-# Logging
+# Logging facade
 log = "0.4.29"
-pretty_env_logger = "0.5.0"
+
+# Logging to rotating files in the per-user log directory
+flexi_logger = { version = "0.31.10", default-features = false }
+
+# Error handling in the binary
+anyhow = "1"
+
+# Command line parsing
+clap = { version = "4.6.7", features = ["derive"] }
+
+# Config file and JSON output
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+
+# Standard per-user config and log directories
+directories = "6"
+
+# The Razer HID library of this workspace
+razer-hid = { path = "crates/razer-hid", version = "0.5.0" }
 
 # Event Loop and Tray Icon
 tao = "0.35.3"
@@ -27,9 +46,6 @@ image = "0.25.9"
 
 # Windows API
 winapi = { version = "0.3.9", features = ["winuser", "wincon", "consoleapi"] }
-
-# Efficient synchronization primitives (e.g. Mutex, RwLock and etc.)
-parking_lot = "0.12"
 
 # Desktop notifications
 notify-rust = "4.11.7"
