@@ -3,6 +3,7 @@ name = "razer-hid"
 description = "Razer HID protocol, device catalog and battery queries"
 version.workspace = true
 license.workspace = true
+repository.workspace = true
 authors.workspace = true
 edition.workspace = true
 

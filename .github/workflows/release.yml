@@ -51,8 +51,15 @@ jobs:
         with:
           persist-credentials: false
       - run: rustup toolchain install
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: notices
+          path: notices
       # No rust-cache: a release is built from scratch, never from a cache a PR could have written.
       - run: cargo build --release --locked --package razer-battery-report
+        env:
+          # Embedded into the exe for the tray's About > Licenses.
+          THIRD_PARTY_NOTICES: ${{ github.workspace }}/notices/THIRD-PARTY.md
       - name: Name the exe after the release
         shell: bash
         env:

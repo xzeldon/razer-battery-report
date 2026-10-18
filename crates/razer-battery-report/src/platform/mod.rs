@@ -20,7 +20,7 @@ use auto_launch::{AutoLaunch, AutoLaunchBuilder, WindowsEnableMode};
 use notify_rust::Notification;
 
 /// Name of the app as the user sees it, for example in toast notifications.
-const APP_DISPLAY_NAME: &str = "Razer Battery Report";
+pub const APP_DISPLAY_NAME: &str = "Razer Battery Report";
 /// Application user model id that identifies the app's toasts on Windows.
 #[cfg(windows)]
 const AUMID: &str = "xzeldon.RazerBatteryReport";
@@ -86,6 +86,11 @@ pub fn set_autostart(enabled: bool) -> anyhow::Result<()> {
 
 pub fn open(path: &Path) -> anyhow::Result<()> {
     opener::open(path).with_context(|| format!("cannot open {}", path.display()))
+}
+
+/// Opens `url` in the default browser.
+pub fn open_url(url: &str) -> anyhow::Result<()> {
+    opener::open_browser(url).with_context(|| format!("cannot open {url}"))
 }
 
 fn launcher() -> anyhow::Result<AutoLaunch> {

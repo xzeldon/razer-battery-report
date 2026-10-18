@@ -62,8 +62,9 @@ carries a comment saying why. A complex type gets a module-local `type` alias ra
 `// SAFETY:` comment.
 
 The release workflow generates `THIRD-PARTY.md`, the licences of every crate in the exe, with
-`scripts/generate-notices.py` and attaches it to the release; it is not committed. A dependency
-whose licence is not in `about.toml`'s `accepted` list fails CI.
+`scripts/generate-notices.py`, passes it to `build.rs` through `THIRD_PARTY_NOTICES` to embed
+it in the exe, and attaches it to the release; it is not committed. Other builds embed a
+placeholder. A dependency whose licence is not in `about.toml`'s `accepted` list fails CI.
 
 ## Code style
 

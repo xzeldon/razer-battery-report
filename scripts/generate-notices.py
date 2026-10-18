@@ -3,8 +3,8 @@
 
 Crate licenses come from `cargo about` (config in about.toml); the Lucide icons embedded in
 the exe are appended from assets/icons/lucide/LICENSE. The file is not committed: the release
-workflow generates it and attaches it to the release. On dependency changes CI runs it only so
-cargo-about fails on a license that about.toml does not accept.
+workflow generates it, embeds it into the exe and attaches it to the release. On dependency
+changes CI runs it only so cargo-about fails on a license that about.toml does not accept.
 
     python scripts/generate-notices.py
 """

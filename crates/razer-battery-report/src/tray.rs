@@ -1,6 +1,7 @@
 //! The tray app: the icon, its tooltip and menu, and the event loop that ties them to the poller.
 
 use std::fs::{self, File, OpenOptions, TryLockError};
+use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -24,6 +25,10 @@ use crate::poller;
 
 /// Keeps a second tray from starting.
 const LOCK_FILE: &str = "tray.lock";
+/// The licence notices of this build, written to the data directory when the user asks for them.
+const LICENSES_FILE: &str = "THIRD-PARTY.md";
+const LICENSES: &str = include_str!(concat!(env!("OUT_DIR"), "/THIRD-PARTY.md"));
+const REPOSITORY_URL: &str = env!("CARGO_PKG_REPOSITORY");
 /// How often the taskbar theme is read again, because the OS sends no event for it.
 const THEME_CHECK_INTERVAL: Duration = Duration::from_mins(1);
 const SEARCHING_TEXT: &str = "Searching for Razer mice…";
@@ -35,6 +40,8 @@ const NOTIFICATIONS_ID: &str = "notifications";
 const SHOW_LEVEL_ID: &str = "show_level";
 const AUTOSTART_ID: &str = "autostart";
 const OPEN_LOG_ID: &str = "open_log";
+const OPEN_REPOSITORY_ID: &str = "open_repository";
+const LICENSES_ID: &str = "licenses";
 const EXIT_ID: &str = "exit";
 
 const DARK_NORMAL: [u8; 3] = [0xFF, 0xFF, 0xFF];
@@ -60,6 +67,8 @@ enum Action {
     ShowLevel,
     Autostart,
     OpenLog,
+    OpenRepository,
+    Licenses,
     Exit,
 }
 
@@ -72,6 +81,8 @@ impl Action {
             Self::ShowLevel => SHOW_LEVEL_ID.to_owned(),
             Self::Autostart => AUTOSTART_ID.to_owned(),
             Self::OpenLog => OPEN_LOG_ID.to_owned(),
+            Self::OpenRepository => OPEN_REPOSITORY_ID.to_owned(),
+            Self::Licenses => LICENSES_ID.to_owned(),
             Self::Exit => EXIT_ID.to_owned(),
         }
     }
@@ -88,6 +99,8 @@ impl Action {
             SHOW_LEVEL_ID => Some(Self::ShowLevel),
             AUTOSTART_ID => Some(Self::Autostart),
             OPEN_LOG_ID => Some(Self::OpenLog),
+            OPEN_REPOSITORY_ID => Some(Self::OpenRepository),
+            LICENSES_ID => Some(Self::Licenses),
             EXIT_ID => Some(Self::Exit),
             _ => None,
         }
@@ -202,6 +215,7 @@ impl App {
             true,
             None,
         ))?;
+        menu.append(&about()?)?;
         menu.append(&MenuItem::with_id(Action::Exit.id(), "Exit", true, None))?;
         Ok(menu)
     }
@@ -276,6 +290,16 @@ impl App {
                 }
             }
             Action::OpenLog => open_log(),
+            Action::OpenRepository => {
+                if let Err(error) = platform::open_url(REPOSITORY_URL) {
+                    log::warn!("tray: {error:#}");
+                }
+            }
+            Action::Licenses => {
+                if let Err(error) = write_licenses().and_then(|path| platform::open(&path)) {
+                    log::warn!("tray: {error:#}");
+                }
+            }
             Action::Exit => return false,
         }
         true
@@ -393,6 +417,38 @@ fn open_log() {
     if let Err(error) = platform::open(&path) {
         log::warn!("tray: {error:#}");
     }
+}
+
+/// Writes the embedded notices over any older copy, so they always match the running build.
+fn write_licenses() -> anyhow::Result<PathBuf> {
+    let dir = paths::data_dir().context("no per-user data directory")?;
+    fs::create_dir_all(&dir).context("cannot create data directory")?;
+    let path = dir.join(LICENSES_FILE);
+    fs::write(&path, LICENSES).with_context(|| format!("cannot write {}", path.display()))?;
+    Ok(path)
+}
+
+/// The About submenu: name, version and author as plain text, then the links.
+fn about() -> tray_icon::menu::Result<Submenu> {
+    let version = format!(
+        "{} {}",
+        platform::APP_DISPLAY_NAME,
+        env!("CARGO_PKG_VERSION")
+    );
+    let author = env!("CARGO_PKG_AUTHORS");
+    // Cargo authors read "name <email>"; the menu shows the name only.
+    let author = author.split_once(" <").map_or(author, |(name, _)| name);
+    Submenu::with_items(
+        "About",
+        true,
+        &[
+            &MenuItem::new(version, false, None),
+            &MenuItem::new(format!("by {author}"), false, None),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(Action::OpenRepository.id(), "Open on GitHub", true, None),
+            &MenuItem::with_id(Action::Licenses.id(), "Licenses", true, None),
+        ],
+    )
 }
 
 fn switch(action: &Action, text: &str, checked: bool) -> CheckMenuItem {

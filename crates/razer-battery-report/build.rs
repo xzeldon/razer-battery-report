@@ -1,5 +1,5 @@
 //! Renders the tray icon masks and the notification icon from the Lucide sources, and embeds
-//! the Windows manifest.
+//! the licence notices and the Windows manifest.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -37,6 +37,8 @@ const APP_ICON_PADDING: f32 = 0.10;
 
 /// The Windows manifest that is embedded into the executable.
 const MANIFEST: &str = "app.manifest";
+/// Path of the generated licence notices; the release workflow sets it.
+const NOTICES_ENV: &str = "THIRD_PARTY_NOTICES";
 /// Directory of the Lucide sources, relative to the crate.
 const LUCIDE_DIR: &str = "../../assets/icons/lucide";
 
@@ -86,6 +88,7 @@ fn main() {
     let sources = Sources::load();
     render_icons(&sources, &out_dir);
     render_app_icon(&sources, &out_dir);
+    embed_notices(&out_dir);
 
     // A console exe lets shells wait for the CLI; the manifest stops Windows 11 24H2+ from
     // opening a console for the tray. Older Windows ignore it and the tray frees the console.
@@ -204,6 +207,28 @@ fn render_app_icon(sources: &Sources, out_dir: &Path) {
         .encode_png()
         .expect("cannot encode the app icon");
     fs::write(out_dir.join("app-icon.png"), png).expect("cannot write the app icon");
+}
+
+/// Copies the licence notices named by [`NOTICES_ENV`] for the exe to embed. Builds without
+/// them, local and pull request ones, embed a pointer to the releases instead.
+fn embed_notices(out_dir: &Path) {
+    println!("cargo:rerun-if-env-changed={NOTICES_ENV}");
+    let target = out_dir.join("THIRD-PARTY.md");
+    let Some(path) = env::var_os(NOTICES_ENV).map(PathBuf::from) else {
+        let repository = env!("CARGO_PKG_REPOSITORY");
+        let placeholder = format!(
+            "# Third-party licenses\n\n\
+             Razer Battery Report is open source and available on GitHub: {repository}\n\n\
+             License: {repository}/blob/master/LICENSE\n\n\
+             Licence notices are included in release builds: {repository}/releases\n"
+        );
+        fs::write(&target, placeholder).expect("cannot write the licence notices");
+        return;
+    };
+    println!("cargo:rerun-if-changed={}", path.display());
+    let text = fs::read_to_string(&path)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", path.display()));
+    fs::write(&target, text).expect("cannot write the licence notices");
 }
 
 /// The SVG of the mouse outline in black, cut around the badge; only its alpha is used.
