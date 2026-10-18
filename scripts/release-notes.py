@@ -20,6 +20,11 @@ def run(*args):
     return result.returncode, result.stdout.strip()
 
 
+def commit_link(url, sha):
+    """A link that reads as the short hash; release bodies do not shorten bare commit URLs."""
+    return f"[`{sha[:7]}`]({url}/commit/{sha})"
+
+
 def main():
     tag = sys.argv[1]
     repository = os.environ["GITHUB_REPOSITORY"]
@@ -44,12 +49,12 @@ def main():
             authors[email] = f"@{login}" if code == 0 and login else name
             if email not in known:
                 newcomers.append((authors[email], sha))
-        print(f"* {subject} by {authors[email]} in {url}/commit/{sha}")
+        print(f"* {subject} by {authors[email]} in {commit_link(url, sha)}")
 
     if has_previous and newcomers:
         print("\n## New Contributors\n")
         for author, sha in newcomers:
-            print(f"* {author} made their first contribution in {url}/commit/{sha}")
+            print(f"* {author} made their first contribution in {commit_link(url, sha)}")
 
     changes = f"compare/{previous}...{tag}" if has_previous else f"commits/{tag}"
     print(f"\n**Full Changelog**: {url}/{changes}")
