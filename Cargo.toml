@@ -69,6 +69,17 @@ opener = "0.9.0"
 # Desktop notifications
 notify-rust = "4.18.2"
 
+# Self-update: HTTPS client on the OS's own TLS stack (Schannel on Windows)
+ureq = { version = "3.3", default-features = false, features = ["native-tls"] }
+
+# Self-update: version comparison, download digest and replacing the running executable
+semver = "1"
+sha2 = "0.10"
+self-replace = "1.5"
+
+# Self-update: Windows toasts with buttons
+tauri-winrt-notification = "0.8.1"
+
 [workspace.lints.rust]
 unsafe_code = "deny"
 missing_debug_implementations = "warn"

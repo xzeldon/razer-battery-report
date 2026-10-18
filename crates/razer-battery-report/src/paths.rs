@@ -12,6 +12,8 @@ const CONFIG_FILE: &str = "config.toml";
 const LOG_DIR: &str = "logs";
 /// File name of the lock that keeps a second tray from starting.
 const LOCK_FILE: &str = "tray.lock";
+const STATE_FILE: &str = "state.json";
+const UPDATE_DIR: &str = "update";
 /// File name of the toast icon.
 const NOTIFICATION_ICON_FILE: &str = "notification.png";
 /// File name of the licence notices of this build.
@@ -22,8 +24,8 @@ pub fn config_file() -> Option<PathBuf> {
     BaseDirs::new().map(|dirs| dirs.config_dir().join(APP_NAME).join(CONFIG_FILE))
 }
 
-/// Per-user local state of the app (logs, lock file, notification icon, licence notices), or
-/// `None` when the OS reports no home directory.
+/// Per-user local state of the app (logs, lock file, update state and downloads, notification
+/// icon, licence notices), or `None` when the OS reports no home directory.
 pub fn data_dir() -> Option<PathBuf> {
     BaseDirs::new().map(|dirs| dirs.data_local_dir().join(APP_NAME))
 }
@@ -36,6 +38,17 @@ pub fn log_dir() -> Option<PathBuf> {
 /// The lock file of the running tray, or `None` when the OS reports no home directory.
 pub fn lock_file() -> Option<PathBuf> {
     data_dir().map(|dir| dir.join(LOCK_FILE))
+}
+
+/// The updater's state file, or `None` when the OS reports no home directory.
+pub fn state_file() -> Option<PathBuf> {
+    data_dir().map(|dir| dir.join(STATE_FILE))
+}
+
+/// Directory of downloaded updates and the installer log, or `None` when the OS reports no home
+/// directory.
+pub fn update_dir() -> Option<PathBuf> {
+    data_dir().map(|dir| dir.join(UPDATE_DIR))
 }
 
 /// The toast icon, or `None` when the OS reports no home directory.

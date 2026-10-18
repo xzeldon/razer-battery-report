@@ -10,6 +10,8 @@ mod paths;
 mod platform;
 mod poller;
 mod tray;
+#[cfg(feature = "self-update")]
+mod update;
 
 use clap::Parser as _;
 

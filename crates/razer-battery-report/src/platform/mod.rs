@@ -13,6 +13,8 @@ use other as imp;
 #[cfg(windows)]
 use windows as imp;
 
+#[cfg(feature = "self-update")]
+use std::io;
 use std::path::Path;
 
 use anyhow::Context as _;
@@ -25,6 +27,14 @@ pub const APP_DISPLAY_NAME: &str = "Razer Battery Report";
 /// mutex; later the macOS bundle id and the Linux desktop id.
 #[cfg(windows)]
 const APP_ID: &str = "xzeldon.RazerBatteryReport";
+
+/// How the running app got onto the computer, which decides how an update replaces it.
+#[cfg(feature = "self-update")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstallKind {
+    Installer,
+    Portable,
+}
 
 /// Whether the taskbar is dark or light, which decides the colour of the tray icon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,6 +89,53 @@ pub fn notification() -> Notification {
     #[cfg(not(windows))]
     notification.appname(APP_DISPLAY_NAME);
     notification
+}
+
+#[cfg(feature = "self-update")]
+pub fn install_kind() -> InstallKind {
+    imp::install_kind()
+}
+
+/// The end of the release file name that holds the app for `kind`, for example `-setup.exe`.
+/// Empty when there are no release files for this OS yet.
+#[cfg(feature = "self-update")]
+pub fn asset_suffix(kind: InstallKind) -> &'static str {
+    match kind {
+        InstallKind::Installer => imp::INSTALLER_SUFFIX,
+        InstallKind::Portable => imp::PORTABLE_SUFFIX,
+    }
+}
+
+/// Starts the downloaded installer without a window and detached from this process, which has
+/// to exit afterwards. The installer writes its log to `log`.
+#[cfg(feature = "self-update")]
+pub fn launch_installer(setup: &Path, log: &Path) -> io::Result<()> {
+    imp::launch_installer(setup, log)
+}
+
+/// Starts a new instance of the running executable, detached from this process.
+#[cfg(feature = "self-update")]
+pub fn relaunch() -> io::Result<()> {
+    imp::relaunch()
+}
+
+/// Whether a toast can carry buttons that report back to the app.
+#[cfg(feature = "self-update")]
+pub fn toast_actions_supported() -> bool {
+    imp::TOAST_ACTIONS_SUPPORTED
+}
+
+/// Shows a toast with buttons given as `(id, label)`. `on_action` gets the id of the clicked
+/// button, or the first id when the toast itself is clicked; it runs on another thread and
+/// may be called any time while the app runs. Without button support only the text is shown.
+#[cfg(feature = "self-update")]
+pub fn show_toast(
+    title: &str,
+    body: &str,
+    actions: &[(&str, &str)],
+    on_action: impl Fn(String) + Send + 'static,
+) -> anyhow::Result<()> {
+    imp::show_toast(title, body, actions, on_action)
 }
 
 /// Starts the app with the user's session when `enabled`. Calling it again repoints a moved

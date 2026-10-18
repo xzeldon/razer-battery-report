@@ -26,11 +26,13 @@ pub fn run(all: bool) -> anyhow::Result<()> {
     check(platform::unregister_notifications());
     for file in [
         paths::lock_file(),
+        paths::state_file(),
         paths::notification_icon(),
         paths::licenses_file(),
     ] {
         check(remove_file(file.as_deref()));
     }
+    check(remove_dir_all(paths::update_dir().as_deref()));
     if all {
         check(remove_dir_all(paths::log_dir().as_deref()));
         check(remove_file(paths::config_file().as_deref()));

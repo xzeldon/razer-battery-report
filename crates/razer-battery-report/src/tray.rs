@@ -23,6 +23,8 @@ use crate::monitor::{self, Level, Reading};
 use crate::paths;
 use crate::platform::{self, Theme};
 use crate::poller;
+#[cfg(feature = "self-update")]
+use crate::update::{self, Updater};
 
 /// The licence notices of this build, written to the data directory when the user asks for them.
 const LICENSES: &str = include_str!(concat!(env!("OUT_DIR"), "/THIRD-PARTY.md"));
@@ -34,7 +36,7 @@ const NO_MOUSE_TEXT: &str = "No Razer mouse found";
 const NO_MOUSE_ITEM: &str = "No mouse found";
 const DEVICE_ID_PREFIX: &str = "device:";
 const THRESHOLD_ID_PREFIX: &str = "threshold:";
-const NOTIFICATIONS_ID: &str = "notifications";
+const BATTERY_ALERTS_ID: &str = "battery_alerts";
 const SHOW_LEVEL_ID: &str = "show_level";
 const AUTOSTART_ID: &str = "autostart";
 const OPEN_LOG_ID: &str = "open_log";
@@ -54,19 +56,33 @@ const LIGHT_CRITICAL: [u8; 3] = [0xDC, 0x26, 0x26];
 enum UserEvent {
     Readings(Vec<Reading>),
     Menu(MenuEvent),
+    #[cfg(feature = "self-update")]
+    Update(update::Event),
+}
+
+/// What the event loop does once an event is handled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Flow {
+    Continue,
+    Exit,
+    /// Release the tray lock, start the new executable and exit.
+    #[cfg(feature = "self-update")]
+    Relaunch,
 }
 
 /// A menu entry, recovered from its id.
 #[derive(Debug, PartialEq, Eq)]
 enum Action {
     Select(String),
-    Notifications,
+    BatteryAlerts,
     Threshold(u8),
     ShowLevel,
     Autostart,
     OpenLog,
     OpenRepository,
     Licenses,
+    #[cfg(feature = "self-update")]
+    Update(update::Command),
     Exit,
 }
 
@@ -74,13 +90,15 @@ impl Action {
     fn id(&self) -> String {
         match self {
             Self::Select(serial) => format!("{DEVICE_ID_PREFIX}{serial}"),
-            Self::Notifications => NOTIFICATIONS_ID.to_owned(),
+            Self::BatteryAlerts => BATTERY_ALERTS_ID.to_owned(),
             Self::Threshold(percent) => format!("{THRESHOLD_ID_PREFIX}{percent}"),
             Self::ShowLevel => SHOW_LEVEL_ID.to_owned(),
             Self::Autostart => AUTOSTART_ID.to_owned(),
             Self::OpenLog => OPEN_LOG_ID.to_owned(),
             Self::OpenRepository => OPEN_REPOSITORY_ID.to_owned(),
             Self::Licenses => LICENSES_ID.to_owned(),
+            #[cfg(feature = "self-update")]
+            Self::Update(command) => command.id(),
             Self::Exit => EXIT_ID.to_owned(),
         }
     }
@@ -92,8 +110,12 @@ impl Action {
         if let Some(percent) = id.strip_prefix(THRESHOLD_ID_PREFIX) {
             return percent.parse().ok().map(Self::Threshold);
         }
+        #[cfg(feature = "self-update")]
+        if let Some(command) = update::Command::parse(id) {
+            return Some(Self::Update(command));
+        }
         match id {
-            NOTIFICATIONS_ID => Some(Self::Notifications),
+            BATTERY_ALERTS_ID => Some(Self::BatteryAlerts),
             SHOW_LEVEL_ID => Some(Self::ShowLevel),
             AUTOSTART_ID => Some(Self::Autostart),
             OPEN_LOG_ID => Some(Self::OpenLog),
@@ -125,6 +147,8 @@ struct App {
     theme: Theme,
     icon_size: u32,
     tray: Option<TrayIcon>,
+    #[cfg(feature = "self-update")]
+    update: Updater,
 }
 
 impl App {
@@ -183,9 +207,9 @@ impl App {
         menu.append(&PredefinedMenuItem::separator())?;
         let config = &self.config;
         menu.append(&switch(
-            &Action::Notifications,
-            "Notifications",
-            config.notifications,
+            &Action::BatteryAlerts,
+            "Battery alerts",
+            config.battery_alerts,
         ))?;
         let thresholds = ALLOWED_LOW_THRESHOLDS.map(|percent| {
             let checked = percent == config.low_threshold;
@@ -206,6 +230,8 @@ impl App {
             "Start at login",
             config.autostart,
         ))?;
+        #[cfg(feature = "self-update")]
+        menu.append(&self.update.submenu(config.updates)?)?;
         menu.append(&PredefinedMenuItem::separator())?;
         menu.append(&MenuItem::with_id(
             Action::OpenLog.id(),
@@ -214,6 +240,10 @@ impl App {
             None,
         ))?;
         menu.append(&about()?)?;
+        #[cfg(feature = "self-update")]
+        if let Some(item) = self.update.install_item() {
+            menu.append(&item)?;
+        }
         menu.append(&MenuItem::with_id(Action::Exit.id(), "Exit", true, None))?;
         Ok(menu)
     }
@@ -255,7 +285,7 @@ impl App {
         let events = monitor::events(self.readings.as_deref(), &current, self.low_threshold());
         for event in &events {
             log::info!("monitor: {event}");
-            if self.config.notifications {
+            if self.config.battery_alerts {
                 let shown = platform::notification().summary(&event.to_string()).show();
                 if let Err(error) = shown {
                     log::warn!("tray: cannot show a notification: {error}");
@@ -269,11 +299,11 @@ impl App {
         self.refresh();
     }
 
-    /// Applies a click on a menu entry. Returns `false` when the app should exit.
-    fn on_action(&mut self, action: Action) -> bool {
+    /// Applies a click on a menu entry or a toast button.
+    fn on_action(&mut self, action: Action) -> Flow {
         match action {
             Action::Select(serial) => self.change(|config| config.selected = Some(serial)),
-            Action::Notifications => self.change(|config| config.notifications ^= true),
+            Action::BatteryAlerts => self.change(|config| config.battery_alerts ^= true),
             Action::Threshold(percent) => self.change(|config| config.low_threshold = percent),
             Action::ShowLevel => self.change(|config| config.show_level ^= true),
             Action::Autostart => {
@@ -298,9 +328,32 @@ impl App {
                     log::warn!("tray: {error:#}");
                 }
             }
-            Action::Exit => return false,
+            #[cfg(feature = "self-update")]
+            Action::Update(command) => {
+                if let update::Command::SetMode(mode) = command {
+                    self.change(|config| config.updates = mode);
+                }
+                self.update.command(command, self.config.updates);
+                self.refresh();
+            }
+            Action::Exit => return Flow::Exit,
         }
-        true
+        Flow::Continue
+    }
+
+    /// Applies what an updater thread or a toast reports.
+    #[cfg(feature = "self-update")]
+    fn on_update(&mut self, event: update::Event) -> Flow {
+        if let update::Event::Toast(id) = &event {
+            return Action::parse(id).map_or(Flow::Continue, |action| self.on_action(action));
+        }
+        let handoff = self.update.event(event, self.config.updates);
+        self.refresh();
+        match handoff {
+            None => Flow::Continue,
+            Some(update::Handoff::Exit) => Flow::Exit,
+            Some(update::Handoff::Relaunch) => Flow::Relaunch,
+        }
     }
 
     fn change(&mut self, apply: impl FnOnce(&mut Config)) {
@@ -327,6 +380,8 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let menu_proxy = proxy.clone();
+    #[cfg(feature = "self-update")]
+    let update_proxy = proxy.clone();
     MenuEvent::set_event_handler(Some(move |event| {
         let _ = menu_proxy.send_event(UserEvent::Menu(event));
     }));
@@ -339,14 +394,24 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         icon_size: 0,
         readings: None,
         tray: None,
+        #[cfg(feature = "self-update")]
+        update: Updater::new(move |event| {
+            let _ = update_proxy.send_event(UserEvent::Update(event));
+        }),
         config,
     };
     let mut next_theme_check = Instant::now() + THEME_CHECK_INTERVAL;
+    #[cfg(feature = "self-update")]
+    let mut next_update_tick = Instant::now() + update::FIRST_TICK;
+    let mut lock = Some(lock);
     event_loop.run(move |event, _, control_flow| {
-        let _ = &lock;
+        let _ = &mut lock;
+        let mut flow = Flow::Continue;
         match event {
             Event::NewEvents(StartCause::Init) => {
                 platform::register_notifications(icon::APP_ICON_PNG);
+                #[cfg(feature = "self-update")]
+                app.update.start();
                 app.icon_size = platform::tray_icon_size();
                 if let Err(error) = app.create_tray() {
                     log::error!("tray: {error:#}");
@@ -357,29 +422,74 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 log_diagnostics(&app.config);
             }
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
-                next_theme_check = Instant::now() + THEME_CHECK_INTERVAL;
-                let theme = platform::taskbar_theme();
-                if theme != app.theme {
-                    app.theme = theme;
+                let now = Instant::now();
+                if now >= next_theme_check {
+                    next_theme_check = now + THEME_CHECK_INTERVAL;
+                    let theme = platform::taskbar_theme();
+                    if theme != app.theme {
+                        app.theme = theme;
+                        app.refresh();
+                    }
+                }
+                #[cfg(feature = "self-update")]
+                if now >= next_update_tick {
+                    next_update_tick = now + update::TICK;
+                    app.update.tick(app.config.updates);
                     app.refresh();
                 }
             }
             Event::UserEvent(UserEvent::Readings(readings)) => app.on_readings(readings),
             Event::UserEvent(UserEvent::Menu(event)) => {
-                let keep_running =
-                    Action::parse(&event.id.0).is_none_or(|action| app.on_action(action));
-                if !keep_running {
-                    app.tray = None;
-                    log::info!("tray: exiting");
-                    log::logger().flush();
-                    *control_flow = ControlFlow::Exit;
+                if let Some(action) = Action::parse(&event.id.0) {
+                    flow = app.on_action(action);
+                }
+            }
+            #[cfg(feature = "self-update")]
+            Event::UserEvent(UserEvent::Update(event)) => flow = app.on_update(event),
+            _ => {}
+        }
+        match flow {
+            Flow::Continue => {}
+            Flow::Exit => {
+                shut_down(&mut app, control_flow);
+                return;
+            }
+            #[cfg(feature = "self-update")]
+            Flow::Relaunch => {
+                if relaunch(&mut lock) {
+                    shut_down(&mut app, control_flow);
                     return;
                 }
             }
-            _ => {}
         }
-        *control_flow = ControlFlow::WaitUntil(next_theme_check);
+        let wake = next_theme_check;
+        #[cfg(feature = "self-update")]
+        let wake = wake.min(next_update_tick);
+        *control_flow = ControlFlow::WaitUntil(wake);
     })
+}
+
+/// Starts the updated executable, which needs the tray lock, so the lock is released first.
+/// When that fails the lock is taken back and this tray keeps running. Returns whether the
+/// new executable started.
+#[cfg(feature = "self-update")]
+fn relaunch(lock: &mut Option<File>) -> bool {
+    drop(lock.take());
+    match platform::relaunch() {
+        Ok(()) => true,
+        Err(error) => {
+            log::warn!("tray: cannot start the updated app: {error}");
+            *lock = acquire_lock().ok().flatten();
+            false
+        }
+    }
+}
+
+fn shut_down(app: &mut App, control_flow: &mut ControlFlow) {
+    app.tray = None;
+    log::info!("tray: exiting");
+    log::logger().flush();
+    *control_flow = ControlFlow::Exit;
 }
 
 /// Whether another process holds the tray lock. Creates neither the lock file nor its
@@ -430,7 +540,7 @@ fn log_diagnostics(config: &Config) {
     thread::spawn(move || log::info!("tray: diagnostics:\n{}", cli::diagnose(&config)));
 }
 
-fn open_log() {
+pub fn open_log() {
     let Some(path) = logging::current_file() else {
         log::warn!("tray: no per-user log directory");
         return;

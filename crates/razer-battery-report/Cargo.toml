@@ -7,6 +7,11 @@ repository.workspace = true
 authors.workspace = true
 edition.workspace = true
 
+[features]
+default = ["self-update"]
+# Checks GitHub for new releases and installs them from the tray; packagers turn it off.
+self-update = ["dep:ureq", "dep:semver", "dep:sha2", "dep:self-replace", "dep:tauri-winrt-notification"]
+
 [dependencies]
 anyhow.workspace = true
 auto-launch.workspace = true
@@ -17,13 +22,18 @@ log.workspace = true
 notify-rust.workspace = true
 opener.workspace = true
 razer-hid.workspace = true
+self-replace = { workspace = true, optional = true }
+semver = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = { workspace = true, optional = true }
 tao.workspace = true
 toml.workspace = true
 tray-icon.workspace = true
+ureq = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = { workspace = true, optional = true }
 windows-sys.workspace = true
 
 [build-dependencies]

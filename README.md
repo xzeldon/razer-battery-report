@@ -36,7 +36,7 @@ delete the exe. Leave out `--all` to keep the settings and logs.
 Right-click the icon to open the menu.
 
 - The connected mice. With more than one connected, click the one the icon should show.
-- **Notifications** turns the popups on or off. A popup appears when a mouse connects or
+- **Battery alerts** turns the popups on or off. A popup appears when a mouse connects or
   disconnects, when its battery gets low or nearly empty, and when it finishes charging.
 - **Low battery** sets the level at which the icon turns yellow and the low battery popup
   appears: 10, 15, 20 or 25%.

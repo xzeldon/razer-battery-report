@@ -97,6 +97,10 @@ const SHAPES: [Shape; 4] = [
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!(
+        "cargo:rustc-env=RBR_TARGET={}",
+        env::var("TARGET").expect("cargo sets TARGET")
+    );
     println!("cargo:rerun-if-changed={MANIFEST}");
     println!("cargo:rerun-if-changed={LUCIDE_DIR}");
 

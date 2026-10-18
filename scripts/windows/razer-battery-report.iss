@@ -12,6 +12,10 @@
 #define SourceIcon GetEnv("RBR_ICON")
 #define OutputDir GetEnv("RBR_DIST")
 #define SetupName GetEnv("RBR_SETUP")
+#define UpdateWaitMs 15000
+#define UpdatePollMs 250
+; Where Setup records a per-user installation; the GUID is AppId below
+#define UninstallKey "Software\Microsoft\Windows\CurrentVersion\Uninstall\{8EC7685F-05CE-4DE1-B33E-262D8A56D8C3}_is1"
 
 [Setup]
 AppId={{8EC7685F-05CE-4DE1-B33E-262D8A56D8C3}
@@ -67,4 +71,55 @@ begin
     Log('cannot run cleanup: ' + SysErrorMessage(ResultCode))
   else if ResultCode <> 0 then
     Log('cleanup failed with exit code ' + IntToStr(ResultCode));
+end;
+
+// The tray starts the installer with /UPDATE and exits right after. Setup checks AppMutex only
+// after InitializeSetup, so it waits here until the tray has gone.
+function IsUpdate: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/UPDATE') = 0 then
+      Result := True;
+end;
+
+function InitializeSetup: Boolean;
+var
+  Waited: Integer;
+begin
+  if IsUpdate then
+  begin
+    Waited := 0;
+    while CheckForMutexes('{#AppId}') and (Waited < {#UpdateWaitMs}) do
+    begin
+      Sleep({#UpdatePollMs});
+      Waited := Waited + {#UpdatePollMs};
+    end;
+  end;
+  Result := True;
+end;
+
+// The app is started again whether or not the update worked; it reports the result itself.
+// Setup that gave up before choosing the folder has no {app}, so the folder of the existing
+// installation comes from the registry then.
+procedure DeinitializeSetup;
+var
+  Dir: String;
+  ResultCode: Integer;
+begin
+  if not IsUpdate then
+    Exit;
+  try
+    Dir := ExpandConstant('{app}');
+  except
+    if not RegQueryStringValue(HKCU, '{#UninstallKey}', 'InstallLocation', Dir) then
+    begin
+      Log('cannot start the app: no installation folder');
+      Exit;
+    end;
+  end;
+  if not Exec(AddBackslash(Dir) + '{#AppExeName}', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode) then
+    Log('cannot start the app: ' + SysErrorMessage(ResultCode));
 end;

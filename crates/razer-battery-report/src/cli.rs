@@ -96,12 +96,13 @@ pub fn diagnose(config: &Config) -> String {
         format!("config file: {}", display_path(paths::config_file())),
         format!("log directory: {}", display_path(paths::log_dir())),
         format!(
-            "config: notifications={} low_threshold={} autostart={} selected={} show_level={}",
-            config.notifications,
+            "config: battery_alerts={} low_threshold={} autostart={} selected={} show_level={} updates={:?}",
+            config.battery_alerts,
             config.low_threshold,
             config.autostart,
             config.selected.as_deref().unwrap_or("none"),
             config.show_level,
+            config.updates,
         ),
     ];
     match list_devices() {

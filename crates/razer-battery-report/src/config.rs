@@ -13,12 +13,23 @@ const DEFAULT_LOW_THRESHOLD: u8 = 15;
 /// The thresholds the tray menu offers.
 pub const ALLOWED_LOW_THRESHOLDS: [u8; 4] = [10, 15, 20, 25];
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateMode {
+    Auto,
+    #[default]
+    Notify,
+    Off,
+}
+
 /// Settings of the app. Missing keys take their defaults and unknown keys are ignored.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Whether battery events are shown as desktop notifications.
-    pub notifications: bool,
+    /// Whether battery events are shown as desktop notifications. Called `notifications` in
+    /// older config files.
+    #[serde(alias = "notifications")]
+    pub battery_alerts: bool,
     /// Battery percentage at or below which the "low battery" event fires.
     pub low_threshold: u8,
     /// Whether the app starts with the user's session.
@@ -27,16 +38,18 @@ pub struct Config {
     pub selected: Option<String>,
     /// Whether the tray icon fills the mouse body by the battery level.
     pub show_level: bool,
+    pub updates: UpdateMode,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            notifications: true,
+            battery_alerts: true,
             low_threshold: DEFAULT_LOW_THRESHOLD,
             autostart: false,
             selected: None,
             show_level: true,
+            updates: UpdateMode::default(),
         }
     }
 }
@@ -108,13 +121,26 @@ mod tests {
     #[test]
     fn saved_text_parses_back_to_the_same_config() {
         let config = Config {
-            notifications: false,
+            battery_alerts: false,
             low_threshold: 25,
             autostart: true,
             selected: Some("PM1".to_owned()),
             show_level: false,
+            updates: UpdateMode::Auto,
         };
         assert_eq!(Config::parse(&config.to_text().unwrap()).unwrap(), config);
+    }
+
+    #[test]
+    fn old_notifications_key_sets_battery_alerts() {
+        assert!(
+            !Config::parse(
+                "notifications = false
+"
+            )
+            .unwrap()
+            .battery_alerts
+        );
     }
 
     #[test]
