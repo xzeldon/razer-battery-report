@@ -101,10 +101,11 @@ checked by hand on a real mouse; say which mouse and which connection you tested
 ## Commits
 
 Conventional Commits: `type(scope): description`, imperative, lowercase, no trailing period, no
-body. Scopes: `hid`, `catalog`, `tray`, `cli`, `config`, `ci`. Pull requests are squash-merged
-into `master`, so the PR title becomes the commit subject and follows the same format. Release
-notes are built from these subjects, so a `feat` or `fix` subject reads as a line a user
-understands. There is no hand-written changelog.
+body. Scopes: `hid`, `catalog`, `tray`, `cli`, `config`, `ci`. The maintainer commits straight
+to `master`; pull requests are squash-merged, so the PR title becomes the commit subject and
+follows the same format. Release notes list the `feat` and `fix` subjects since the previous
+release (`scripts/release-notes.py`), so such a subject reads as a line a user understands.
+There is no hand-written changelog and no hand-written release notes.
 
 ## Releases
 
@@ -120,8 +121,9 @@ are made straight on `master`, without a pull request:
    stops after step 3 and hands over `git tag vX.Y.Z -m vX.Y.Z` and
    `git push origin master vX.Y.Z` instead of running them.
 
-The release workflow checks the tag against the version, builds the exe and publishes the
-release with GitHub's generated notes; a tag with `-` is a pre-release.
+The release workflow checks the tag against the version, builds the exe and installer and
+publishes the release with the notes from `scripts/release-notes.py`; a tag with `-` is a
+pre-release.
 
 ## Pull requests
 
