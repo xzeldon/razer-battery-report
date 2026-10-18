@@ -18,3 +18,11 @@ pub fn tray_icon_size() -> u32 {
 
 /// Nothing to register: notifications carry the app name directly.
 pub fn register_notifications(_icon_png: &[u8]) {}
+
+/// Nothing to announce: only the Windows installer looks for a running tray.
+pub fn announce_running() {}
+
+/// Nothing was registered.
+pub fn unregister_notifications() -> anyhow::Result<()> {
+    Ok(())
+}

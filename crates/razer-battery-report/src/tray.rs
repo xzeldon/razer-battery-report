@@ -1,7 +1,8 @@
 //! The tray app: the icon, its tooltip and menu, and the event loop that ties them to the poller.
 
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::path::PathBuf;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -23,10 +24,7 @@ use crate::paths;
 use crate::platform::{self, Theme};
 use crate::poller;
 
-/// Keeps a second tray from starting.
-const LOCK_FILE: &str = "tray.lock";
 /// The licence notices of this build, written to the data directory when the user asks for them.
-const LICENSES_FILE: &str = "THIRD-PARTY.md";
 const LICENSES: &str = include_str!(concat!(env!("OUT_DIR"), "/THIRD-PARTY.md"));
 const REPOSITORY_URL: &str = env!("CARGO_PKG_REPOSITORY");
 /// How often the taskbar theme is read again, because the OS sends no event for it.
@@ -320,6 +318,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         log::info!("tray: already running");
         return Ok(());
     };
+    platform::announce_running();
     let hid = Hid::new().context("cannot initialise hid")?;
     if let Err(error) = platform::set_autostart(config.autostart) {
         log::warn!("tray: cannot apply autostart: {error:#}");
@@ -383,20 +382,42 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     })
 }
 
+/// Whether another process holds the tray lock. Creates neither the lock file nor its
+/// directory, so it is safe to call before removing them.
+pub fn running() -> anyhow::Result<bool> {
+    let path = lock_path()?;
+    let file = match OpenOptions::new().write(true).open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).with_context(|| format!("cannot open {}", path.display())),
+    };
+    Ok(!try_lock(&file, &path)?)
+}
+
 /// `None` when another tray holds the lock; the lock lasts as long as the file is open.
 fn acquire_lock() -> anyhow::Result<Option<File>> {
-    let dir = paths::data_dir().context("no per-user data directory")?;
-    fs::create_dir_all(&dir).context("cannot create data directory")?;
-    let path = dir.join(LOCK_FILE);
+    let path = lock_path()?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).context("cannot create data directory")?;
+    }
     let file = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(false)
         .open(&path)
         .with_context(|| format!("cannot open {}", path.display()))?;
+    Ok(try_lock(&file, &path)?.then_some(file))
+}
+
+fn lock_path() -> anyhow::Result<PathBuf> {
+    paths::lock_file().context("no per-user data directory")
+}
+
+/// Takes the lock on `file`, which was opened from `path`; `false` when someone else holds it.
+fn try_lock(file: &File, path: &Path) -> anyhow::Result<bool> {
     match file.try_lock() {
-        Ok(()) => Ok(Some(file)),
-        Err(TryLockError::WouldBlock) => Ok(None),
+        Ok(()) => Ok(true),
+        Err(TryLockError::WouldBlock) => Ok(false),
         Err(TryLockError::Error(error)) => {
             Err(error).with_context(|| format!("cannot lock {}", path.display()))
         }
@@ -421,9 +442,10 @@ fn open_log() {
 
 /// Writes the embedded notices over any older copy, so they always match the running build.
 fn write_licenses() -> anyhow::Result<PathBuf> {
-    let dir = paths::data_dir().context("no per-user data directory")?;
-    fs::create_dir_all(&dir).context("cannot create data directory")?;
-    let path = dir.join(LICENSES_FILE);
+    let path = paths::licenses_file().context("no per-user data directory")?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir).context("cannot create data directory")?;
+    }
     fs::write(&path, LICENSES).with_context(|| format!("cannot write {}", path.display()))?;
     Ok(path)
 }

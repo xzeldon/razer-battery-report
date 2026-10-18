@@ -45,6 +45,10 @@ Inside the binary:
   dongle or cable and is never used for identity.
 - **Standard per-user paths only.** Config, logs and any other state go to the OS's standard
   per-user directories, resolved through the `directories` crate.
+- **No traces after uninstall.** Every file, registry value or autostart entry the app creates
+  is listed in `paths.rs` or `platform/` and removed by `cleanup.rs` (the `cleanup` command).
+  Installers and package managers only call `razer-battery-report cleanup [--all]`; they never
+  carry their own list.
 
 ## Building and checks
 
@@ -53,6 +57,7 @@ cargo run --locked --package razer-battery-report
 cargo fmt --all
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+pwsh scripts/windows/build-installer.ps1   # portable exe + installer in dist/, needs Inno Setup 6
 ```
 
 Clippy runs with `pedantic` and stays clean, `--all-targets` included. Lint levels live in the

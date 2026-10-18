@@ -55,18 +55,12 @@ jobs:
         with:
           name: notices
           path: notices
+      - run: choco install innosetup --yes --no-progress
       # No rust-cache: a release is built from scratch, never from a cache a PR could have written.
-      - run: cargo build --release --locked --package razer-battery-report
-        env:
-          # Embedded into the exe for the tray's About > Licenses.
-          THIRD_PARTY_NOTICES: ${{ github.workspace }}/notices/THIRD-PARTY.md
-      - name: Name the exe after the release
-        shell: bash
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          mkdir dist
-          cp target/release/razer-battery-report.exe "dist/razer-battery-report-$TAG-x86_64-pc-windows-msvc.exe"
+      # The script puts the portable exe and the installer into dist/; the notices are embedded
+      # into the exe for the tray's About > Licenses.
+      - run: scripts/windows/build-installer.ps1 -Notices notices/THIRD-PARTY.md
+        shell: pwsh
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: exe

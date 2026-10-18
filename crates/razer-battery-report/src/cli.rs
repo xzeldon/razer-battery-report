@@ -1,10 +1,11 @@
-//! The command line: `status` and `diagnose`.
+//! The command line: `status`, `diagnose` and `cleanup`.
 
 use anyhow::Context as _;
 use clap::{Parser, Subcommand};
 use razer_hid::{Battery, Device, Error, Hid, Link};
 use serde::Serialize;
 
+use crate::cleanup;
 use crate::config::Config;
 use crate::paths;
 
@@ -30,6 +31,12 @@ pub enum Command {
     },
     /// Print a report to attach to a bug report.
     Diagnose,
+    /// Remove everything the app stored on this computer, before uninstalling it.
+    Cleanup {
+        /// Also remove the settings and the logs.
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 /// The outcome of reading a mouse.
@@ -62,6 +69,7 @@ struct EndpointJson {
 pub fn run(command: &Command, config: &Config) -> anyhow::Result<()> {
     match command {
         Command::Status { json } => status(*json),
+        Command::Cleanup { all } => cleanup::run(*all),
         Command::Diagnose => {
             println!("{}", diagnose(config));
             Ok(())

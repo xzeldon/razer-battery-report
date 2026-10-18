@@ -1,5 +1,5 @@
-//! Renders the tray icon masks and the notification icon from the Lucide sources, and embeds
-//! the licence notices and the Windows manifest.
+//! Renders the tray icon masks and the app icon from the Lucide sources, and embeds the licence
+//! notices, the Windows app icon and the Windows manifest.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -28,6 +28,8 @@ const WHEEL: &str = "<path d='M12 6v4'/>";
 
 /// Side of the notification icon, in pixels.
 const APP_ICON_SIZE: u32 = 256;
+/// Sides of the images in `app.ico`, in pixels.
+const APP_ICON_SIZES: [u32; 8] = [16, 20, 24, 32, 40, 48, 64, APP_ICON_SIZE];
 /// Background colour of the notification icon.
 const APP_ICON_BACKGROUND: &str = "#2563EB";
 /// Corner radius of the notification icon, as a fraction of its side.
@@ -35,8 +37,22 @@ const APP_ICON_RADIUS: f32 = 0.23;
 /// Padding around the mouse in the notification icon, as a fraction of its side.
 const APP_ICON_PADDING: f32 = 0.10;
 
+/// The app icon in all sizes; the installer script finds it under this name in `OUT_DIR`.
+const APP_ICO: &str = "app.ico";
 /// The Windows manifest that is embedded into the executable.
 const MANIFEST: &str = "app.manifest";
+/// Resource type id of a manifest.
+const RT_MANIFEST: u32 = 24;
+/// Size of the `ICONDIR` header of an `.ico` file.
+const ICO_HEADER_BYTES: usize = 6;
+/// Size of one `ICONDIRENTRY` of an `.ico` file.
+const ICO_ENTRY_BYTES: usize = 16;
+/// Type field of an `.ico` header; a `.cur` file has 2.
+const ICO_TYPE_ICON: u16 = 1;
+/// Bits per pixel recorded for each image.
+const ICO_BITS_PER_PIXEL: u16 = 32;
+/// Width or height byte of an entry that stands for 256 pixels.
+const ICO_SIDE_256: u8 = 0;
 /// Path of the generated licence notices; the release workflow sets it.
 const NOTICES_ENV: &str = "THIRD_PARTY_NOTICES";
 /// Directory of the Lucide sources, relative to the crate.
@@ -88,12 +104,13 @@ fn main() {
     let sources = Sources::load();
     render_icons(&sources, &out_dir);
     render_app_icon(&sources, &out_dir);
+    let ico = out_dir.join(APP_ICO);
     embed_notices(&out_dir);
 
     // A console exe lets shells wait for the CLI; the manifest stops Windows 11 24H2+ from
     // opening a console for the tray. Older Windows ignore it and the tray frees the console.
     if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows") {
-        embed_manifest::embed_manifest_file(MANIFEST).expect("cannot embed the Windows manifest");
+        embed_resources(&out_dir, &ico);
     }
 }
 
@@ -190,23 +207,74 @@ fn render_icons(sources: &Sources, out_dir: &Path) {
     fs::write(out_dir.join("icons.rs"), code).expect("cannot write icons.rs");
 }
 
-/// Renders the notification icon: a white mouse on a blue rounded square.
+/// Renders the app icon: a white mouse on a blue rounded square. Writes `app-icon.png` for the
+/// notifications and [`APP_ICO`] with every size of [`APP_ICON_SIZES`].
 fn render_app_icon(sources: &Sources, out_dir: &Path) {
-    let side = pixels(APP_ICON_SIZE);
-    let radius = side * APP_ICON_RADIUS;
-    let scale = side * (1.0 - 2.0 * APP_ICON_PADDING) / GRID;
-    let offset = side * APP_ICON_PADDING;
+    let images: Vec<(u32, Vec<u8>)> = APP_ICON_SIZES
+        .iter()
+        .map(|&size| (size, app_icon_png(sources, size)))
+        .collect();
+    let notification = images
+        .iter()
+        .find(|(size, _)| *size == APP_ICON_SIZE)
+        .expect("the sizes include the notification size");
+    fs::write(out_dir.join("app-icon.png"), &notification.1).expect("cannot write the app icon");
+    fs::write(out_dir.join(APP_ICO), ico(&images)).expect("cannot write app.ico");
+}
+
+/// The app icon as a PNG of `size` pixels.
+fn app_icon_png(sources: &Sources, size: u32) -> Vec<u8> {
+    let edge = pixels(size);
+    let radius = edge * APP_ICON_RADIUS;
+    let scale = edge * (1.0 - 2.0 * APP_ICON_PADDING) / GRID;
+    let offset = edge * APP_ICON_PADDING;
     let svg = format!(
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 {side} {side}'>\
-         <rect width='{side}' height='{side}' rx='{radius}' fill='{APP_ICON_BACKGROUND}'/>\
-         <g transform='translate({offset} {offset}) scale({scale})' fill='none' stroke='white' \
-         stroke-width='{STROKE}' stroke-linecap='round' stroke-linejoin='round'>{}</g></svg>",
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 {edge} {edge}'>         <rect width='{edge}' height='{edge}' rx='{radius}' fill='{APP_ICON_BACKGROUND}'/>         <g transform='translate({offset} {offset}) scale({scale})' fill='none' stroke='white'          stroke-width='{STROKE}' stroke-linecap='round' stroke-linejoin='round'>{}</g></svg>",
         sources.mouse
     );
-    let png = rasterize(&svg, APP_ICON_SIZE)
+    rasterize(&svg, size)
         .encode_png()
-        .expect("cannot encode the app icon");
-    fs::write(out_dir.join("app-icon.png"), png).expect("cannot write the app icon");
+        .expect("cannot encode the app icon")
+}
+
+/// An `.ico` file from square PNG images, each given with its side in pixels.
+fn ico(images: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    let count = u16::try_from(images.len()).expect("few images");
+    let mut file = Vec::new();
+    file.extend_from_slice(&0_u16.to_le_bytes());
+    file.extend_from_slice(&ICO_TYPE_ICON.to_le_bytes());
+    file.extend_from_slice(&count.to_le_bytes());
+    let mut offset = ICO_HEADER_BYTES + ICO_ENTRY_BYTES * images.len();
+    for (size, png) in images {
+        let side = u8::try_from(*size).unwrap_or(ICO_SIDE_256);
+        file.extend_from_slice(&[side, side, 0, 0]);
+        file.extend_from_slice(&1_u16.to_le_bytes());
+        file.extend_from_slice(&ICO_BITS_PER_PIXEL.to_le_bytes());
+        file.extend_from_slice(&u32::try_from(png.len()).expect("small image").to_le_bytes());
+        file.extend_from_slice(&u32::try_from(offset).expect("small file").to_le_bytes());
+        offset += png.len();
+    }
+    for (_, png) in images {
+        file.extend_from_slice(png);
+    }
+    file
+}
+
+/// Compiles a resource script with the icon (id 1) and the manifest into the executable.
+fn embed_resources(out_dir: &Path, ico: &Path) {
+    let manifest =
+        Path::new(&env::var_os("CARGO_MANIFEST_DIR").expect("cargo sets it")).join(MANIFEST);
+    let quoted = |path: &Path| path.display().to_string().replace('\\', "\\\\");
+    let script = format!(
+        "1 ICON \"{}\"\n1 {RT_MANIFEST} \"{}\"\n",
+        quoted(ico),
+        quoted(&manifest)
+    );
+    let path = out_dir.join("app.rc");
+    fs::write(&path, script).expect("cannot write the resource script");
+    embed_resource::compile(&path, embed_resource::NONE)
+        .manifest_required()
+        .expect("cannot embed the Windows resources");
 }
 
 /// Copies the licence notices named by [`NOTICES_ENV`] for the exe to embed. Builds without

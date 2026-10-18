@@ -27,11 +27,14 @@ const TIMESTAMP: &str = "%Y-%m-%d %H:%M:%S%.3f";
 /// directory cannot be used, logs go to stderr only and one line says so. The returned handle
 /// must stay alive for as long as the app logs; `None` means logging could not start at all.
 pub fn init() -> Option<LoggerHandle> {
-    start_in_log_dir().or_else(|| {
-        start_stderr()
-            .inspect_err(|error| eprintln!("logging: cannot start: {error}"))
-            .ok()
-    })
+    start_in_log_dir().or_else(init_stderr)
+}
+
+/// Starts logging to stderr only, for commands that must not touch the log directory.
+pub fn init_stderr() -> Option<LoggerHandle> {
+    start_stderr()
+        .inspect_err(|error| eprintln!("logging: cannot start: {error}"))
+        .ok()
 }
 
 /// The log file being written, or `None` when the OS reports no home directory.

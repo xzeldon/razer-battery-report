@@ -27,7 +27,7 @@ tray-icon.workspace = true
 windows-sys.workspace = true
 
 [build-dependencies]
-embed-manifest.workspace = true
+embed-resource.workspace = true
 resvg.workspace = true
 
 [lints]

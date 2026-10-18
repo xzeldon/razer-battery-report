@@ -21,9 +21,10 @@ use notify_rust::Notification;
 
 /// Name of the app as the user sees it, for example in toast notifications.
 pub const APP_DISPLAY_NAME: &str = "Razer Battery Report";
-/// Application user model id that identifies the app's toasts on Windows.
+/// The reverse-DNS id of the app. On Windows it is the toast AUMID and the name of the instance
+/// mutex; later the macOS bundle id and the Linux desktop id.
 #[cfg(windows)]
-const AUMID: &str = "xzeldon.RazerBatteryReport";
+const APP_ID: &str = "xzeldon.RazerBatteryReport";
 
 /// Whether the taskbar is dark or light, which decides the colour of the tray icon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -58,11 +59,23 @@ pub fn register_notifications(icon_png: &[u8]) {
     imp::register_notifications(icon_png);
 }
 
+/// Marks the process as a running tray, so an installer can detect it. Call it once at tray
+/// start; the mark lasts until the process exits.
+pub fn announce_running() {
+    imp::announce_running();
+}
+
+/// Removes what [`register_notifications`] registered with the OS. Succeeds when nothing is
+/// registered.
+pub fn unregister_notifications() -> anyhow::Result<()> {
+    imp::unregister_notifications()
+}
+
 /// A notification builder carrying the app's identity.
 pub fn notification() -> Notification {
     let mut notification = Notification::new();
     #[cfg(windows)]
-    notification.app_id(AUMID);
+    notification.app_id(APP_ID);
     #[cfg(not(windows))]
     notification.appname(APP_DISPLAY_NAME);
     notification

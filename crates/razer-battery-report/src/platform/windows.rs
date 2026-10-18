@@ -5,15 +5,16 @@ use std::{fs, ptr};
 
 use anyhow::Context as _;
 
-use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
 use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
 use windows_sys::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_DWORD, RegGetValueW, RegSetKeyValueW,
+    HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_DWORD, RegDeleteTreeW, RegGetValueW, RegSetKeyValueW,
 };
+use windows_sys::Win32::System::Threading::CreateMutexW;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows_sys::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
 
-use super::{APP_DISPLAY_NAME, AUMID, Theme};
+use super::{APP_DISPLAY_NAME, APP_ID, Theme};
 use crate::paths;
 
 /// Registry key (under `HKCU`) with the taskbar theme settings.
@@ -26,8 +27,6 @@ const AUMID_KEY_PREFIX: &str = r"Software\Classes\AppUserModelId";
 const DISPLAY_NAME_VALUE: &str = "DisplayName";
 /// Value with the path of the icon shown on the toast.
 const ICON_URI_VALUE: &str = "IconUri";
-/// File name of the toast icon inside the data directory.
-const NOTIFICATION_ICON_FILE: &str = "notification.png";
 /// Tray icon size in pixels when the system metric is unavailable.
 const FALLBACK_ICON_SIZE: u32 = 16;
 /// Process count of a console that only this process uses.
@@ -91,13 +90,36 @@ pub fn register_notifications(icon_png: &[u8]) {
 
 /// The fallible part of [`register_notifications`].
 fn register(icon_png: &[u8]) -> anyhow::Result<()> {
-    let dir = paths::data_dir().context("no per-user data directory")?;
-    fs::create_dir_all(&dir).with_context(|| format!("cannot create {}", dir.display()))?;
-    let icon = dir.join(NOTIFICATION_ICON_FILE);
+    let icon = paths::notification_icon().context("no per-user data directory")?;
+    if let Some(dir) = icon.parent() {
+        fs::create_dir_all(dir).with_context(|| format!("cannot create {}", dir.display()))?;
+    }
     fs::write(&icon, icon_png).with_context(|| format!("cannot write {}", icon.display()))?;
-    let key = wide(&format!(r"{AUMID_KEY_PREFIX}\{AUMID}"));
+    let key = wide(&format!(r"{AUMID_KEY_PREFIX}\{APP_ID}"));
     set_string(&key, DISPLAY_NAME_VALUE, APP_DISPLAY_NAME)?;
     set_string(&key, ICON_URI_VALUE, &path_text(&icon))
+}
+
+/// See [`super::announce_running`]. The handle is never closed: the mutex must live as long as
+/// the process.
+pub fn announce_running() {
+    let name = wide(APP_ID);
+    // SAFETY: the name is NUL-terminated; null security attributes select the defaults.
+    let handle = unsafe { CreateMutexW(ptr::null(), 0, name.as_ptr()) };
+    if handle.is_null() {
+        log::warn!("platform: cannot create the instance mutex");
+    }
+}
+
+/// See [`super::unregister_notifications`].
+pub fn unregister_notifications() -> anyhow::Result<()> {
+    let key = wide(&format!(r"{AUMID_KEY_PREFIX}\{APP_ID}"));
+    // SAFETY: the key is NUL-terminated.
+    let status = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key.as_ptr()) };
+    match status {
+        ERROR_SUCCESS | ERROR_FILE_NOT_FOUND => Ok(()),
+        _ => anyhow::bail!("cannot delete the notification registration: error {status}"),
+    }
 }
 
 /// Sets a string value under an `HKCU` key, creating the key when needed.
