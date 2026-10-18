@@ -103,9 +103,9 @@ checked by hand on a real mouse; say which mouse and which connection you tested
 Conventional Commits: `type(scope): description`, imperative, lowercase, no trailing period, no
 body. Scopes: `hid`, `catalog`, `tray`, `cli`, `config`, `ci`. The maintainer commits straight
 to `master`; pull requests are squash-merged, so the PR title becomes the commit subject and
-follows the same format. Release notes list the `feat` and `fix` subjects since the previous
-release (`scripts/release-notes.py`), so such a subject reads as a line a user understands.
-There is no hand-written changelog and no hand-written release notes.
+follows the same format. Release notes list every commit subject since the previous release
+in the layout of GitHub's generated notes (`scripts/release-notes.py`), so a subject reads as a
+line a user understands. There is no hand-written changelog and no hand-written release notes.
 
 ## Releases
 
