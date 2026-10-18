@@ -49,9 +49,9 @@ on the mouse itself, and the entry gets a comment saying who tested it and on wh
 
 ## Pull requests
 
-Open them against `master`. Commits follow
-[Conventional Commits](https://www.conventionalcommits.org/) with no body. Release notes are
-generated from commit subjects, so write a subject a user would understand.
+Open them against `master`. I squash-merge them, so the pull request title becomes the commit
+subject. Write the title as a [Conventional Commit](https://www.conventionalcommits.org/) a user
+would understand, because it ends up in the release notes.
 
 ## AI
 

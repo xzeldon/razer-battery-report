@@ -61,6 +61,10 @@ carries a comment saying why. A complex type gets a module-local `type` alias ra
 `allow(clippy::type_complexity)`. `unsafe` is allowed only in `platform/`, each block with a
 `// SAFETY:` comment.
 
+The release workflow generates `THIRD-PARTY.md`, the licences of every crate in the exe, with
+`scripts/generate-notices.py` and attaches it to the release; it is not committed. A dependency
+whose licence is not in `about.toml`'s `accepted` list fails CI.
+
 ## Code style
 
 - Every type and every function whose behaviour is not obvious from its name carries a `///`
@@ -91,9 +95,27 @@ checked by hand on a real mouse; say which mouse and which connection you tested
 ## Commits
 
 Conventional Commits: `type(scope): description`, imperative, lowercase, no trailing period, no
-body. Scopes: `hid`, `catalog`, `tray`, `cli`, `config`, `ci`. The release notes are generated
-from commit subjects by git-cliff (`cliff.toml`), so a `feat` or `fix` subject reads as a line a
-user understands. There is no hand-written changelog.
+body. Scopes: `hid`, `catalog`, `tray`, `cli`, `config`, `ci`. Pull requests are squash-merged
+into `master`, so the PR title becomes the commit subject and follows the same format. Release
+notes are built from these subjects, so a `feat` or `fix` subject reads as a line a user
+understands. There is no hand-written changelog.
+
+## Releases
+
+Both crates share one version, `[workspace.package] version` in the root `Cargo.toml`. Releases
+are made straight on `master`, without a pull request:
+
+1. Check that the tree is clean, `master` is up to date with `origin` and CI passed on its last
+   commit.
+2. Pick the version from the commit subjects since the last `v*` tag: a breaking change (`!` or
+   `BREAKING CHANGE`) bumps major, any `feat` bumps minor, otherwise patch.
+3. Set the version, run `cargo check` so `Cargo.lock` follows, commit `chore: release X.Y.Z`.
+4. Tag `vX.Y.Z` and push the commit and the tag. The maintainer's git signs tags, so an agent
+   stops after step 3 and hands over `git tag vX.Y.Z -m vX.Y.Z` and
+   `git push origin master vX.Y.Z` instead of running them.
+
+The release workflow checks the tag against the version, builds the exe and publishes the
+release with GitHub's generated notes; a tag with `-` is a pre-release.
 
 ## Pull requests
 
