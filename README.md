@@ -11,17 +11,25 @@ Only Windows is supported for now. Linux and macOS are planned.
 
 ## Install
 
-1. Download `razer-battery-report.exe` from the
+1. Download the file ending in `-setup.exe` from the
    [latest release](https://github.com/xzeldon/razer-battery-report/releases/latest).
-2. Move it to a folder it can stay in, for example `C:\Program Files\Razer Battery Report\`.
-3. Run it. If Windows hides the icon, drag it out of the overflow area of the taskbar.
+2. Run it. It installs for your Windows user only and does not ask for admin rights.
+3. If Windows hides the icon, drag it out of the overflow area of the taskbar.
 4. Turn on **Start at login** in the tray menu to have it start with Windows.
+
+The release also has the plain exe without an installer. Put it in any folder and run it. It
+works the same way.
 
 Windows 11 24H2 or newer is recommended. Older Windows, including Windows 10, works too, but a
 console window flashes for a moment each time the app starts.
 
-There is no installer yet. To remove the app, turn off **Start at login**, exit it and delete the
-exe. Settings and logs stay in the folders listed under [Files](#files).
+## Uninstall
+
+Remove the app in **Settings > Apps**. The uninstaller asks whether to delete your settings and
+logs. The autostart entry and the rest of the app's files go either way.
+
+For the plain exe, exit the app, run `razer-battery-report cleanup --all` in a terminal and
+delete the exe. Leave out `--all` to keep the settings and logs.
 
 ## Tray menu
 
@@ -35,6 +43,8 @@ Right-click the icon to open the menu.
 - **Show level on icon** turns the fill off if you prefer a plain outline.
 - **Start at login** starts the app when you log in to Windows.
 - **Open log** opens the log file. Attach it when you report a bug.
+- **About** shows the version and links to this page and to the licenses of the libraries the
+  app is built from.
 
 ## Command line
 
@@ -47,7 +57,8 @@ Razer DeathAdder V4 Pro  42%
 
 `status --json` prints the same data as JSON, with the serial number and the connection of every
 mouse. `diagnose` prints a report with the app version, the paths below and every mouse it finds;
-paste it into a bug report.
+paste it into a bug report. `cleanup` removes everything the app stored on the computer, as
+described under [Uninstall](#uninstall).
 
 ## Files
 
