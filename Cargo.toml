@@ -37,7 +37,7 @@ toml = "1"
 directories = "6"
 
 # The Razer HID library of this workspace
-razer-hid = { path = "crates/razer-hid", version = "0.5.0" }
+razer-hid = { path = "crates/razer-hid" }
 
 # Event Loop and Tray Icon
 tao = "0.37.1"
