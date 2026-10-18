@@ -2,6 +2,7 @@
 name = "razer-battery-report"
 description = "Razer Battery Level Tray Indicator"
 version.workspace = true
+license.workspace = true
 authors.workspace = true
 edition.workspace = true
 

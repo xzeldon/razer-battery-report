@@ -1,0 +1,56 @@
+name: Dependencies
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - Cargo.lock
+      - "**/Cargo.toml"
+      - about.toml
+      - scripts/generate-notices.py
+      - .github/workflows/dependencies.yml
+  pull_request:
+    paths:
+      - Cargo.lock
+      - "**/Cargo.toml"
+      - about.toml
+      - scripts/generate-notices.py
+      - .github/workflows/dependencies.yml
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-audit@0.22.2
+      - run: cargo audit --file Cargo.lock
+
+  licenses:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-about@0.9.2
+      # cargo-about fails on any licence about.toml does not accept; the written file is discarded.
+      - run: python3 scripts/generate-notices.py
