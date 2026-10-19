@@ -42,6 +42,10 @@ Right-click the icon to open the menu.
   appears: 10, 15, 20 or 25%.
 - **Show level on icon** turns the fill off if you prefer a plain outline.
 - **Start at login** starts the app when you log in to Windows.
+- **Updates** decides what happens when a new version comes out. The app checks GitHub once a
+  day. **Notify only**, the default, shows a popup and adds **Update to vX.Y.Z** to the menu.
+  **Install automatically** installs it without asking. **Off** turns the daily check off.
+  **Check now** checks right away in any mode.
 - **Open log** opens the log file. Attach it when you report a bug.
 - **About** shows the version and links to this page and to the licenses of the libraries the
   app is built from.
@@ -128,7 +132,8 @@ Move it and the level comes back within a few seconds.
 
 ## Building from source
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+See [CONTRIBUTING.md](CONTRIBUTING.md). Packagers can build with `--no-default-features` to leave
+out the update check, so the package manager handles updates instead.
 
 ## Credits
 
