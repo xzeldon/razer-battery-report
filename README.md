@@ -1,78 +1,142 @@
-# razer-battery-report
+<div align="center">
 
-Shows the battery level of a wireless Razer mouse in the Windows system tray.
+# Razer Battery Report
 
-The tray icon is a mouse that fills up with the charge. It turns yellow when the battery is low
-and red at 5% or less. A lightning bolt on the icon means the mouse is charging, a moon means it
-is asleep, and a crossed-out mouse means no supported mouse is connected. Hover over the icon to
-see the exact percentage.
+Shows the battery level of your wireless Razer mouse in the Windows system tray.
 
-Only Windows is supported for now. Linux and macOS are planned.
+[![Latest release](https://img.shields.io/github/v/release/xzeldon/razer-battery-report)](https://github.com/xzeldon/razer-battery-report/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/xzeldon/razer-battery-report/total)](https://github.com/xzeldon/razer-battery-report/releases)
+[![License](https://img.shields.io/github/license/xzeldon/razer-battery-report)](LICENSE)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/tray-dark.svg">
+  <img src="docs/tray-light.svg" alt="Left: the tray icon with the tooltip Razer DeathAdder V4 Pro: 55%. Right: the tray menu." width="788">
+</picture>
+
+</div>
+
+> [!TIP]
+> The app reads the battery level directly from the mouse. You do not need Razer Synapse.
+
+> [!NOTE]
+> The app works only on Windows at this time. Linux and macOS support is planned.
+
+## The tray icon
+
+The icon is a mouse. The fill of the mouse shows the battery level. To see the exact
+percentage, put the pointer on the icon.
+
+| Icon | Meaning |
+| --- | --- |
+| White or black mouse | The battery level is normal. The color follows the Windows theme. |
+| Yellow mouse | The battery level is low. You set this level in the menu. The default is 15%. |
+| Red mouse | The battery level is 5% or less. |
+| Mouse with a lightning bolt | The mouse is charging. |
+| Mouse with a moon | The mouse is asleep and does not send data. |
+| Crossed-out mouse | No supported mouse is connected. |
 
 ## Install
 
-1. Download the file ending in `-setup.exe` from the
+1. Download the file that ends in `-setup.exe` from the
    [latest release](https://github.com/xzeldon/razer-battery-report/releases/latest).
-2. Run it. It installs for your Windows user only and does not ask for admin rights.
-3. If Windows hides the icon, drag it out of the overflow area of the taskbar.
-4. Turn on **Start at login** in the tray menu to have it start with Windows.
+2. Run the file. The app installs for your Windows user only. It does not ask for administrator
+   rights.
+3. If Windows hides the icon, drag the icon from the overflow area to the taskbar.
+4. To start the app with Windows, right-click the icon and select **Start at login**.
 
-The release also has the plain exe without an installer. Put it in any folder and run it. It
-works the same way.
+**Portable version.** The release also has a portable exe, without an installer. Put the exe in a
+folder and run it. The portable version has the same functions and also updates itself.
 
-Windows 11 24H2 or newer is recommended. Older Windows, including Windows 10, works too, but a
-console window flashes for a moment each time the app starts.
-
-## Uninstall
-
-Remove the app in **Settings > Apps**. The uninstaller asks whether to delete your settings and
-logs. The autostart entry and the rest of the app's files go either way.
-
-For the plain exe, exit the app, run `razer-battery-report cleanup --all` in a terminal and
-delete the exe. Leave out `--all` to keep the settings and logs.
+**Requirements.** Windows 10 or Windows 11, 64-bit. Use Windows 11 24H2 or later if possible. On
+older versions, a console window opens for a moment each time the app starts.
 
 ## Tray menu
 
 Right-click the icon to open the menu.
 
-- The connected mice. With more than one connected, click the one the icon should show.
-- **Battery alerts** turns the popups on or off. A popup appears when a mouse connects or
-  disconnects, when its battery gets low or nearly empty, and when it finishes charging.
-- **Low battery** sets the level at which the icon turns yellow and the low battery popup
-  appears: 10, 15, 20 or 25%.
-- **Show level on icon** turns the fill off if you prefer a plain outline.
-- **Start at login** starts the app when you log in to Windows.
-- **Updates** decides what happens when a new version comes out. The app checks GitHub once a
-  day. **Notify only**, the default, shows a popup and adds **Update to vX.Y.Z** to the menu.
-  **Install automatically** installs it without asking. **Off** turns the daily check off.
-  **Check now** checks right away in any mode.
-- **Open log** opens the log file. Attach it when you report a bug.
-- **About** shows the version and links to this page and to the licenses of the libraries the
-  app is built from.
+| Item | What it does |
+| --- | --- |
+| Your mice | Shows each connected mouse and its battery level. If more than one mouse is connected, select the mouse that the icon shows. |
+| **Battery alerts** | Turns notifications on or off. A notification shows when a mouse connects or disconnects, when the battery is low, when it is at 5% or less, and when charging is complete. |
+| **Low battery** | Sets the low battery level: 10, 15, 20 or 25%. At this level the icon becomes yellow and a notification shows. |
+| **Show level on icon** | Turn it off to show only the outline of the mouse, without the fill. |
+| **Start at login** | Starts the app when you log in to Windows. |
+| **Updates** | Sets what the app does when a new version is available. See [Updates](#updates). |
+| **Open log** | Opens the log file. Attach this file when you report a bug. |
+| **About** | Shows the version. Has links to this page and to the licenses of the libraries in the app. |
+| **Exit** | Stops the app. |
+
+## Updates
+
+The app checks GitHub for a new version one time each day. Select a mode in the **Updates** menu:
+
+- **Notify only** is the default. The app shows a notification and adds **Update to vX.Y.Z** to
+  the menu. Select this item to install the update.
+- **Install automatically** installs the update without a question.
+- **Off** stops the daily check.
+
+**Check now** checks immediately, in all modes.
+
+## Uninstall
+
+### Installed version
+
+1. Open **Settings > Apps > Installed apps**.
+2. Find **Razer Battery Report**. Select **...**, then **Uninstall**.
+3. The uninstaller asks: "Also delete your settings and logs?"
+   - Select **Yes** to remove the app completely.
+   - Select **No** to keep your settings for a later installation.
+
+### Portable version
+
+1. Right-click the tray icon and select **Exit**.
+2. Open a terminal in the folder of the exe.
+3. Run the exe with `cleanup --all`. Use the name of your file, for example:
+
+   ```console
+   > .\razer-battery-report-v1.0.0-x86_64-pc-windows-msvc.exe cleanup --all
+   ```
+
+4. Delete the exe.
+
+To keep your settings and logs, run `cleanup` without `--all`.
+
+### What the app stores
+
+A complete removal deletes all of these items. Nothing else stays on your computer.
+
+| Location | Contents |
+| --- | --- |
+| `%APPDATA%\razer-battery-report\config.toml` | Your settings. |
+| `%LOCALAPPDATA%\razer-battery-report\` | Logs, downloaded updates and small files that the app needs to run. |
+| `%LOCALAPPDATA%\Programs\Razer Battery Report\` | The installed app and its uninstaller. Only the installer creates this folder. |
+| Start menu shortcut **Razer Battery Report** | Only the installer creates this shortcut. |
+| Registry value `Razer Battery Report` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` | The **Start at login** entry. |
+| Registry key `HKCU\Software\Classes\AppUserModelId\xzeldon.RazerBatteryReport` | The name and icon of the notifications. |
 
 ## Command line
 
-The same exe prints the battery level in a terminal:
+The same exe also works in a terminal. Open the terminal in the folder of the exe. The installer
+puts the exe in `%LOCALAPPDATA%\Programs\Razer Battery Report`.
 
 ```console
-> razer-battery-report status
+> .\razer-battery-report.exe status
 Razer DeathAdder V4 Pro  42%
 ```
 
-`status --json` prints the same data as JSON, with the serial number and the connection of every
-mouse. `diagnose` prints a report with the app version, the paths below and every mouse it finds;
-paste it into a bug report. `cleanup` removes everything the app stored on the computer, as
-described under [Uninstall](#uninstall).
-
-## Files
-
-The menu settings are saved to `%APPDATA%\razer-battery-report\config.toml`. Logs are in
-`%LOCALAPPDATA%\razer-battery-report\logs\`.
+| Command | What it does |
+| --- | --- |
+| `status` | Prints the battery level of each connected mouse. |
+| `status --json` | Prints the same data as JSON, with the serial number and the connection of each mouse. |
+| `diagnose` | Prints a report with the app version, the file locations and all mice that the app finds. Add this report to bug reports. |
+| `cleanup` | Removes all files and registry entries of the app, but keeps your settings and logs. |
+| `cleanup --all` | Removes all files and registry entries of the app, including your settings and logs. |
 
 ## Supported mice
 
-Each connection of a mouse has its own USB product id, listed below with Razer's vendor id 1532.
-A mouse connected by cable and receiver at the same time shows up once.
+Each connection of a mouse has its own USB product ID. The table shows these IDs. The vendor ID
+of Razer is 1532. If you connect one mouse with the cable and the receiver at the same time, the
+app shows it one time.
 
 | Mouse | Cable | Receiver | Bluetooth |
 | --- | --- | --- | --- |
@@ -115,25 +179,60 @@ A mouse connected by cable and receiver at the same time shows up once.
 | Razer Viper V3 Pro | 00C0 | 00C1 |  |
 | Razer Viper V3 Pro SE | 00DE | 00DF |  |
 
-¹ The mouse cannot report whether it is charging, so the app never shows the lightning bolt or the
-"fully charged" popup for it.
+¹ This mouse does not report if it is charging. For this mouse, the app does not show the
+lightning bolt or the "fully charged" notification.
 
-The list comes from [openrazer](https://github.com/openrazer/openrazer). If your mouse is
-missing, see [adding a mouse](CONTRIBUTING.md#adding-a-mouse).
+The list comes from [openrazer](https://github.com/openrazer/openrazer). If your mouse is not in
+the list, see [Adding a mouse](CONTRIBUTING.md#adding-a-mouse).
 
 ## Questions
 
-**My mouse runs on rechargeable AA batteries and the percentage looks wrong.** The mouse computes
-the percentage itself and expects alkaline batteries. NiMH batteries hold a lower, flatter voltage,
-so the reading drops early and then stays put. The app shows what the mouse reports.
+<details>
+<summary><b>The mouse is connected, but the icon shows a moon.</b></summary>
+<br>
 
-**The mouse is connected but the icon shows a moon.** The mouse is asleep and does not answer.
-Move it and the level comes back within a few seconds.
+The mouse is asleep and does not answer. Move the mouse. The battery level comes back after a
+few seconds.
 
-## Building from source
+</details>
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Packagers can build with `--no-default-features` to leave
-out the update check, so the package manager handles updates instead.
+<details>
+<summary><b>The icon shows a crossed-out mouse.</b></summary>
+<br>
+
+The app does not find a supported mouse. Do these steps:
+
+1. Make sure that the mouse is in the [list of supported mice](#supported-mice).
+2. Connect the receiver or the cable again.
+3. If the problem continues, right-click the icon and select **Open log**. Attach the log file
+   to a [bug report](https://github.com/xzeldon/razer-battery-report/issues).
+
+</details>
+
+<details>
+<summary><b>My mouse uses rechargeable AA batteries, and the percentage is wrong.</b></summary>
+<br>
+
+The mouse calculates the percentage itself, for alkaline batteries. NiMH batteries have a lower
+and flatter voltage. Thus the level drops quickly at first and then stays the same for a long
+time. The app shows the value that the mouse sends.
+
+</details>
+
+<details>
+<summary><b>Windows installed a Razer driver when I connected the mouse.</b></summary>
+<br>
+
+Windows Update installs this driver, not this app. The app does not need the Razer driver or
+Razer Synapse.
+
+</details>
+
+## Build from source
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Package maintainers can build with
+`--no-default-features`. This removes the update check, so that the package manager controls
+updates.
 
 ## Credits
 
@@ -146,4 +245,4 @@ out the update check, so the package manager handles updates instead.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
