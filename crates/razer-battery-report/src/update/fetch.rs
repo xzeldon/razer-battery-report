@@ -1,5 +1,6 @@
 //! The network side of the updater: the latest release and the download of its file.
 
+use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
@@ -62,10 +63,13 @@ fn release_url() -> String {
 /// Hashes the file as stored on disk, not the stream: antivirus software often removes or
 /// locks a download right after it was written.
 fn verify(path: &Path, expected: &str) -> Result<(), UpdateError> {
-    let hash = File::open(path).and_then(|mut file| {
-        let mut hasher = Sha256::new();
-        io::copy(&mut file, &mut hasher)?;
-        Ok(format!("{:x}", hasher.finalize()))
+    let hash = fs::read(path).map(|bytes| {
+        Sha256::digest(bytes)
+            .iter()
+            .fold(String::new(), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            })
     });
     match hash {
         Ok(hash) if hash == expected => Ok(()),

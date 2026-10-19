@@ -74,7 +74,7 @@ ureq = { version = "3.3", default-features = false, features = ["native-tls"] }
 
 # Self-update: version comparison, download digest and replacing the running executable
 semver = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 self-replace = "1.5"
 
 # Self-update: Windows toasts with buttons
