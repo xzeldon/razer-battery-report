@@ -178,6 +178,7 @@ app shows it one time.
 | Razer Viper V3 HyperSpeed ¹ |  | 00B8 |  |
 | Razer Viper V3 Pro | 00C0 | 00C1 |  |
 | Razer Viper V3 Pro SE | 00DE | 00DF |  |
+| Razer Viper V4 Pro | 00E5 | 00E6 |  |
 
 ¹ This mouse does not report if it is charging. For this mouse, the app does not show the
 lightning bolt or the "fully charged" notification.
