@@ -11,6 +11,12 @@ edition.workspace = true
 default = ["self-update"]
 # Checks GitHub for new releases and installs them from the tray; packagers turn it off.
 self-update = ["dep:ureq", "dep:semver", "dep:sha2", "dep:self-replace", "dep:tauri-winrt-notification"]
+# Tracy profiling, never in releases; collects data from start-up on. Listens on localhost only.
+profile-with-tracy = ["dep:tracy-client", "tracy-client/default", "tracy-client/only-localhost"]
+# Collects data only while the Tracy profiler is connected.
+profile-with-tracy-ondemand = ["profile-with-tracy", "tracy-client/ondemand"]
+# Also records every allocation with its call stack.
+profile-with-tracy-allocations = ["profile-with-tracy"]
 
 [dependencies]
 anyhow.workspace = true
@@ -29,6 +35,7 @@ serde_json.workspace = true
 sha2 = { workspace = true, optional = true }
 tao.workspace = true
 toml.workspace = true
+tracy-client = { workspace = true, optional = true }
 tray-icon.workspace = true
 ureq = { workspace = true, optional = true }
 

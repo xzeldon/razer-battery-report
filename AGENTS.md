@@ -58,7 +58,14 @@ cargo fmt --all
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 pwsh scripts/windows/build-installer.ps1   # portable exe + installer in dist/, needs Inno Setup 6
+cargo build --profile profiling --features razer-battery-report/profile-with-tracy-ondemand
 ```
+
+Profiling builds connect to the Tracy profiler v0.14.1, the version `tracy-client` speaks. Run
+the exe as administrator so Tracy also gets CPU sampling and context switches. Mark new code
+paths with `profiling::span!("subsystem: what")`; the macro expands to nothing in normal builds.
+The `profile-with-tracy` features never go into a release: Tracy's C++ part is BSD-3-Clause,
+which `about.toml` does not accept.
 
 Clippy runs with `pedantic` and stays clean, `--all-targets` included. Lint levels live in the
 root `Cargo.toml` under `[workspace.lints]`. A local `#[allow]` sits on the narrowest item and

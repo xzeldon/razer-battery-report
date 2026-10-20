@@ -9,6 +9,7 @@ mod monitor;
 mod paths;
 mod platform;
 mod poller;
+mod profiling;
 mod tray;
 #[cfg(feature = "self-update")]
 mod update;
@@ -19,6 +20,7 @@ use cli::{Cli, Command};
 use config::Config;
 
 fn main() -> anyhow::Result<()> {
+    profiling::start();
     let cli = Cli::parse();
     // Keeps the log files flushed until the app exits.
     let _logger = match cli.command {

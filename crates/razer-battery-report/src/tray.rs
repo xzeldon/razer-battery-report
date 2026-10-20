@@ -23,6 +23,7 @@ use crate::monitor::{self, Level, Reading};
 use crate::paths;
 use crate::platform::{self, Theme};
 use crate::poller;
+use crate::profiling;
 #[cfg(feature = "self-update")]
 use crate::update::{self, Updater};
 
@@ -262,6 +263,7 @@ impl App {
     }
 
     fn refresh(&mut self) {
+        profiling::span!("tray: refresh");
         let view = match self.view() {
             Ok(view) => view,
             Err(error) => {
@@ -422,6 +424,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 log_diagnostics(&app.config);
             }
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
+                profiling::span!("tray: timer");
                 let now = Instant::now();
                 if now >= next_theme_check {
                     next_theme_check = now + THEME_CHECK_INTERVAL;

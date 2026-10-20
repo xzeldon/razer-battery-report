@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use razer_hid::{Battery, Device, Error, Hid};
 
 use crate::monitor::{DeviceKey, Reading};
+use crate::profiling;
 
 /// How often the bus is scanned for plugged and unplugged mice.
 const SCAN_INTERVAL: Duration = Duration::from_secs(5);
@@ -47,7 +48,11 @@ fn run(hid: &Hid, mut sink: impl FnMut(Vec<Reading>) -> bool) {
     let mut last_battery_read: Option<Instant> = None;
     loop {
         let read_all = last_battery_read.is_none_or(|at| at.elapsed() >= BATTERY_INTERVAL);
-        match hid.devices() {
+        let devices = {
+            profiling::span!("poller: list devices");
+            hid.devices()
+        };
+        match devices {
             Ok(devices) => {
                 let scanned = devices
                     .iter()
@@ -128,6 +133,7 @@ fn find_previous<'a>(
 
 /// Reads the battery of `device` and logs failures.
 fn read_battery(device: &Device) -> Probe {
+    profiling::span!("poller: read battery");
     match device.battery() {
         Ok(battery) => Probe::Battery(battery),
         Err(Error::Timeout) => {
