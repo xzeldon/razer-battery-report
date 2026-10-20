@@ -7,18 +7,24 @@ use std::os::windows::process::CommandExt as _;
 use std::path::Path;
 #[cfg(feature = "self-update")]
 use std::process::{Command, Stdio};
-use std::{fs, ptr};
+use std::{fs, ptr, thread};
 
 use anyhow::Context as _;
 
-use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS};
+use windows_sys::Win32::Foundation::{
+    CloseHandle, ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HANDLE, WAIT_OBJECT_0,
+};
 use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
 #[cfg(feature = "self-update")]
 use windows_sys::Win32::System::Registry::RRF_RT_REG_SZ;
 use windows_sys::Win32::System::Registry::{
-    HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_DWORD, RegDeleteTreeW, RegGetValueW, RegSetKeyValueW,
+    HKEY, HKEY_CURRENT_USER, KEY_NOTIFY, REG_NOTIFY_CHANGE_LAST_SET, REG_SZ, RRF_RT_REG_DWORD,
+    RegCloseKey, RegDeleteTreeW, RegGetValueW, RegNotifyChangeKeyValue, RegOpenKeyExW,
+    RegSetKeyValueW,
 };
-use windows_sys::Win32::System::Threading::CreateMutexW;
+use windows_sys::Win32::System::Threading::{
+    CreateEventW, CreateMutexW, INFINITE, WaitForSingleObject,
+};
 use windows_sys::Win32::UI::HiDpi::{GetDpiForSystem, GetSystemMetricsForDpi};
 use windows_sys::Win32::UI::WindowsAndMessaging::SM_CXSMICON;
 
@@ -96,6 +102,19 @@ pub fn taskbar_theme() -> Theme {
     match status == ERROR_SUCCESS && data == 1 {
         true => Theme::Light,
         false => Theme::Dark,
+    }
+}
+
+pub fn watch_taskbar_theme(on_change: impl Fn(Theme) -> bool + Send + 'static) {
+    let spawned = thread::Builder::new()
+        .name("theme".to_owned())
+        .spawn(move || {
+            if let Err(error) = watch_personalize_key(&on_change) {
+                log::warn!("platform: cannot watch the taskbar theme: {error:#}");
+            }
+        });
+    if let Err(error) = spawned {
+        log::warn!("platform: cannot start the theme watcher: {error}");
     }
 }
 
@@ -292,6 +311,67 @@ fn same_dir(recorded: &str, dir: &Path) -> bool {
 
 fn path_text(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+/// Reports the theme and waits for the next change of the personalize key, until `on_change`
+/// returns `false`.
+fn watch_personalize_key(on_change: &dyn Fn(Theme) -> bool) -> anyhow::Result<()> {
+    let name = wide(PERSONALIZE_KEY);
+    let mut key: HKEY = ptr::null_mut();
+    // SAFETY: the name is NUL-terminated and `key` receives the opened handle.
+    let status = unsafe {
+        RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            name.as_ptr(),
+            0,
+            KEY_NOTIFY,
+            &raw mut key,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        anyhow::bail!("cannot open the personalize key: error {status}");
+    }
+    // SAFETY: no security attributes and no name; an unnamed auto-reset event, initially unset.
+    let event: HANDLE = unsafe { CreateEventW(ptr::null(), 0, 0, ptr::null()) };
+    let result = match event.is_null() {
+        true => Err(anyhow::anyhow!(
+            "cannot create an event: {}",
+            std::io::Error::last_os_error()
+        )),
+        false => notify_loop(key, event, on_change),
+    };
+    // SAFETY: both handles were opened above and are not used afterwards; a null event is
+    // skipped.
+    unsafe {
+        if !event.is_null() {
+            CloseHandle(event);
+        }
+        RegCloseKey(key);
+    }
+    result
+}
+
+fn notify_loop(key: HKEY, event: HANDLE, on_change: &dyn Fn(Theme) -> bool) -> anyhow::Result<()> {
+    loop {
+        // Arming before reading means a change made while reading still signals the event.
+        // SAFETY: `key` is open with KEY_NOTIFY and `event` is a live event handle; the thread
+        // that arms the notification stays alive while waiting for it.
+        let status =
+            unsafe { RegNotifyChangeKeyValue(key, 0, REG_NOTIFY_CHANGE_LAST_SET, event, 1) };
+        if status != ERROR_SUCCESS {
+            anyhow::bail!("cannot watch the personalize key: error {status}");
+        }
+        if !on_change(taskbar_theme()) {
+            return Ok(());
+        }
+        // SAFETY: `event` is a live event handle.
+        if unsafe { WaitForSingleObject(event, INFINITE) } != WAIT_OBJECT_0 {
+            anyhow::bail!(
+                "cannot wait for a theme change: {}",
+                std::io::Error::last_os_error()
+            );
+        }
+    }
 }
 
 /// UTF-16 with a trailing NUL, as the wide Win32 functions expect.

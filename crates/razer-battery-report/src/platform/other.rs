@@ -27,6 +27,9 @@ pub fn taskbar_theme() -> Theme {
     Theme::Dark
 }
 
+/// Nothing to watch: the theme here is always dark.
+pub fn watch_taskbar_theme(_on_change: impl Fn(Theme) -> bool + Send + 'static) {}
+
 pub fn tray_icon_size() -> u32 {
     TRAY_ICON_SIZE
 }

@@ -56,6 +56,13 @@ pub fn taskbar_theme() -> Theme {
     imp::taskbar_theme()
 }
 
+/// Calls `on_change` on a thread of its own with the taskbar theme right away and again after
+/// each change of the theme settings, until it returns `false`. Never called where the OS
+/// reports no theme.
+pub fn watch_taskbar_theme(on_change: impl Fn(Theme) -> bool + Send + 'static) {
+    imp::watch_taskbar_theme(on_change);
+}
+
 /// The edge length in pixels of the tray icon the OS wants. On Windows it must be called after
 /// the tao event loop exists, because tao sets the process DPI awareness; before that the
 /// answer is always 16.

@@ -4,7 +4,8 @@ use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
+#[cfg(feature = "self-update")]
+use std::time::Instant;
 
 use anyhow::Context as _;
 use razer_hid::{Hid, Percent};
@@ -30,8 +31,6 @@ use crate::update::{self, Updater};
 /// The licence notices of this build, written to the data directory when the user asks for them.
 const LICENSES: &str = include_str!(concat!(env!("OUT_DIR"), "/THIRD-PARTY.md"));
 const REPOSITORY_URL: &str = env!("CARGO_PKG_REPOSITORY");
-/// How often the taskbar theme is read again, because the OS sends no event for it.
-const THEME_CHECK_INTERVAL: Duration = Duration::from_mins(1);
 const SEARCHING_TEXT: &str = "Searching for Razer mice…";
 const NO_MOUSE_TEXT: &str = "No Razer mouse found";
 const NO_MOUSE_ITEM: &str = "No mouse found";
@@ -57,6 +56,7 @@ const LIGHT_CRITICAL: [u8; 3] = [0xDC, 0x26, 0x26];
 enum UserEvent {
     Readings(Vec<Reading>),
     Menu(MenuEvent),
+    Theme(Theme),
     #[cfg(feature = "self-update")]
     Update(update::Event),
 }
@@ -283,6 +283,13 @@ impl App {
         tray.set_menu(Some(Box::new(view.menu)));
     }
 
+    fn on_theme(&mut self, theme: Theme) {
+        if theme != self.theme {
+            self.theme = theme;
+            self.refresh();
+        }
+    }
+
     fn on_readings(&mut self, current: Vec<Reading>) {
         let events = monitor::events(self.readings.as_deref(), &current, self.low_threshold());
         for event in &events {
@@ -382,11 +389,15 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
     let menu_proxy = proxy.clone();
+    let theme_proxy = proxy.clone();
     #[cfg(feature = "self-update")]
     let update_proxy = proxy.clone();
     MenuEvent::set_event_handler(Some(move |event| {
         let _ = menu_proxy.send_event(UserEvent::Menu(event));
     }));
+    platform::watch_taskbar_theme(move |theme| {
+        theme_proxy.send_event(UserEvent::Theme(theme)).is_ok()
+    });
     poller::spawn(hid, move |readings| {
         proxy.send_event(UserEvent::Readings(readings)).is_ok()
     });
@@ -402,7 +413,6 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         }),
         config,
     };
-    let mut next_theme_check = Instant::now() + THEME_CHECK_INTERVAL;
     #[cfg(feature = "self-update")]
     let mut next_update_tick = Instant::now() + update::FIRST_TICK;
     let mut lock = Some(lock);
@@ -423,18 +433,10 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 log::info!("tray: started");
                 log_diagnostics(&app.config);
             }
+            #[cfg(feature = "self-update")]
             Event::NewEvents(StartCause::ResumeTimeReached { .. }) => {
                 profiling::span!("tray: timer");
                 let now = Instant::now();
-                if now >= next_theme_check {
-                    next_theme_check = now + THEME_CHECK_INTERVAL;
-                    let theme = platform::taskbar_theme();
-                    if theme != app.theme {
-                        app.theme = theme;
-                        app.refresh();
-                    }
-                }
-                #[cfg(feature = "self-update")]
                 if now >= next_update_tick {
                     next_update_tick = now + update::TICK;
                     app.update.tick(app.config.updates);
@@ -442,6 +444,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 }
             }
             Event::UserEvent(UserEvent::Readings(readings)) => app.on_readings(readings),
+            Event::UserEvent(UserEvent::Theme(theme)) => app.on_theme(theme),
             Event::UserEvent(UserEvent::Menu(event)) => {
                 if let Some(action) = Action::parse(&event.id.0) {
                     flow = app.on_action(action);
@@ -465,10 +468,11 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 }
             }
         }
-        let wake = next_theme_check;
+        *control_flow = ControlFlow::Wait;
         #[cfg(feature = "self-update")]
-        let wake = wake.min(next_update_tick);
-        *control_flow = ControlFlow::WaitUntil(wake);
+        {
+            *control_flow = ControlFlow::WaitUntil(next_update_tick);
+        }
     })
 }
 
