@@ -61,9 +61,9 @@ impl Hid {
         })
     }
 
-    /// One [`Device`] per connected physical mouse. Rescans the bus on every call; serials are
-    /// read once per endpoint, so calls are cheap. A sleeping mouse comes without a serial until
-    /// it answers.
+    /// One [`Device`] per connected physical mouse. Rescans the bus on every call, but only
+    /// Razer devices: hidapi opens every device it lists and reads its strings over USB. Serials
+    /// are read once per endpoint. A sleeping mouse comes without a serial until it answers.
     ///
     /// # Errors
     ///
@@ -71,7 +71,8 @@ impl Hid {
     pub fn devices(&self) -> Result<Vec<Device>> {
         let mut guard = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let state = &mut *guard;
-        state.api.refresh_devices()?;
+        state.api.reset_devices()?;
+        state.api.add_devices(catalog::VENDOR_ID, 0)?;
         discovery::discover(&transport::HidBus::new(&state.api), &mut state.serials)
     }
 }
