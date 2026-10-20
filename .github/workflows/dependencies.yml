@@ -9,20 +9,12 @@ on:
       - about.toml
       - scripts/generate-notices.py
       - .github/workflows/dependencies.yml
-  pull_request:
-    paths:
-      - Cargo.lock
-      - "**/Cargo.toml"
-      - about.toml
-      - scripts/generate-notices.py
-      - .github/workflows/dependencies.yml
   schedule:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 

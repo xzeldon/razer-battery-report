@@ -1,16 +1,21 @@
 name: CI
 
-# No `paths` filter on the triggers: a required check from a workflow that never
-# started leaves the PR pending forever. The `changes` job filters instead.
+# A manual run ignores `paths` and always builds; its exe is attached for testing a branch.
 on:
   push:
     branches: [master]
-  pull_request:
+    paths:
+      - "crates/**"
+      - "assets/**"
+      - Cargo.toml
+      - Cargo.lock
+      - rust-toolchain.toml
+      - rustfmt.toml
+      - .github/workflows/ci.yml
   workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: {}
 
@@ -18,46 +23,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  changes:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - id: filter
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          PUSH_AFTER: ${{ github.sha }}
-        run: |
-          # Fail open: whenever the diff is unknown, run everything.
-          code='^(crates/|assets/)|^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml|rustfmt\.toml|\.github/workflows/ci\.yml)$'
-
-          range=''
-          case "$EVENT" in
-            pull_request) range="$PR_BASE...$PR_HEAD" ;;
-            push) [[ "$PUSH_BEFORE" =~ ^0+$ ]] || range="$PUSH_BEFORE..$PUSH_AFTER" ;;
-          esac
-
-          if [[ -n "$range" ]] && files=$(git diff --name-only "$range"); then
-            printf 'changed files:\n%s\n' "$files"
-            if grep -qE "$code" <<<"$files"; then c=true; else c=false; fi
-          else
-            echo 'diff unavailable, running everything'
-            c=true
-          fi
-          echo "code=$c" >> "$GITHUB_OUTPUT"
-
   windows:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: windows-2025
     permissions:
       contents: read
@@ -74,25 +40,12 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo build --release --locked --package razer-battery-report
       - name: Short sha
-        if: github.event_name == 'push'
         id: sha
         shell: bash
         run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: github.event_name == 'push'
         with:
           name: razer-battery-report-${{ steps.sha.outputs.short }}-x86_64-pc-windows-msvc
           path: target/release/razer-battery-report.exe
           if-no-files-found: error
 
-  ci:
-    if: always()
-    needs: [changes, windows]
-    runs-on: ubuntu-latest
-    permissions: {}
-    steps:
-      - env:
-          RESULTS: ${{ toJSON(needs.*.result) }}
-        run: |
-          echo "$RESULTS"
-          if grep -qE 'failure|cancelled' <<<"$RESULTS"; then exit 1; fi
