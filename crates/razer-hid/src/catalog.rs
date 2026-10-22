@@ -145,6 +145,9 @@ pub const CATALOG: &[Entry] = &[
     Entry { pid: 0x00DB, name: "Razer Cobra HyperSpeed Receiver", tid: 0x1F, interface: 0, wait_us: 31_000, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Dongle },
     Entry { pid: 0x00DE, name: "Razer Viper V3 Pro SE (Wired)", tid: 0x1F, interface: 0, wait_us: 31_000, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Wired },
     Entry { pid: 0x00DF, name: "Razer Viper V3 Pro SE (Wireless)", tid: 0x1F, interface: 0, wait_us: 59_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Dongle },
+    // Values from openrazer issue #2958, tested by @Dulkman on the cable and the dongle.
+    Entry { pid: 0x00E2, name: "Razer Basilisk V4 Pro (Wired)", tid: 0x1F, interface: 3, wait_us: 59_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Wired },
+    Entry { pid: 0x00E3, name: "Razer Basilisk V4 Pro (Wireless)", tid: 0x1F, interface: 3, wait_us: 59_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Dongle },
     // Values from openrazer PR #2751, tested by @morphly on the cable and the dongle.
     Entry { pid: 0x00E5, name: "Razer Viper V4 Pro (Wired)", tid: 0x1F, interface: 3, wait_us: 59_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Wired },
     Entry { pid: 0x00E6, name: "Razer Viper V4 Pro (Wireless)", tid: 0x1F, interface: 3, wait_us: 59_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Dongle },
