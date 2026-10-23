@@ -147,6 +147,7 @@ app shows it one time.
 | Razer Basilisk V3 Pro 35K | 00CC | 00CD |  |
 | Razer Basilisk V3 Pro 35K Phantom Green Edition | 00D6 | 00D7 |  |
 | Razer Basilisk V3 X HyperSpeed ¹ |  | 00B9 |  |
+| Razer Basilisk V4 Pro | 00E2 | 00E3 |  |
 | Razer Basilisk X HyperSpeed ¹ |  | 0083 |  |
 | Razer Cobra HyperSpeed | 00DA | 00DB |  |
 | Razer Cobra Pro | 00AF | 00B0 |  |
