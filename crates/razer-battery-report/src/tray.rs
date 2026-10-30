@@ -611,6 +611,9 @@ fn shown<'a>(readings: &'a [Reading], selected: Option<&str>) -> Option<&'a Read
 }
 
 fn status(reading: &Reading) -> String {
+    if reading.bluetooth {
+        return "on Bluetooth".to_owned();
+    }
     match (reading.battery, reading.asleep) {
         (Some(battery), false) => cli::battery_text(battery),
         (Some(battery), true) => format!("{} (asleep)", cli::battery_text(battery)),
@@ -662,6 +665,10 @@ fn look(
     let Some(reading) = shown else {
         return plain(Shape::Off);
     };
+    // The last receiver level is stale while the mouse is on Bluetooth.
+    if reading.bluetooth {
+        return plain(Shape::Mouse);
+    }
     let shape = match (reading.battery, reading.asleep) {
         (Some(battery), _) if battery.charging == Some(true) => Shape::Charging,
         (_, true) => Shape::Asleep,
@@ -707,7 +714,20 @@ mod tests {
                 charging,
             }),
             asleep,
+            bluetooth: false,
         }
+    }
+
+    #[test]
+    fn on_bluetooth_shows_a_plain_mouse_without_a_level() {
+        let mut bluetooth = reading(Some("a"), Some((3, Some(true))), true);
+        bluetooth.bluetooth = true;
+        assert_eq!(status(&bluetooth), "on Bluetooth");
+        let got = look(Some(&bluetooth), true, percent(15), true, Theme::Dark);
+        assert_eq!(
+            (got.shape, got.color, got.fill),
+            (Shape::Mouse, DARK_NORMAL, None)
+        );
     }
 
     #[test]

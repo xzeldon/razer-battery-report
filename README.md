@@ -138,17 +138,20 @@ Each connection of a mouse has its own USB product ID. The table shows these IDs
 of Razer is 1532. If you connect one mouse with the cable and the receiver at the same time, the
 app shows it one time.
 
+The app cannot read the battery level over Bluetooth. Windows shows it in Settings > Bluetooth &
+devices. If the receiver is connected and the mouse uses Bluetooth, the app shows "on Bluetooth".
+
 | Mouse | Cable | Receiver | Bluetooth |
 | --- | --- | --- | --- |
 | Razer Atheris ¹ |  | 0062 |  |
 | Razer Basilisk Mobile ¹ | 00D3 | 00D4 |  |
 | Razer Basilisk Ultimate | 0086 | 0088 |  |
 | Razer Basilisk V3 Pro | 00AA | 00AB |  |
-| Razer Basilisk V3 Pro 35K | 00CC | 00CD |  |
+| Razer Basilisk V3 Pro 35K | 00CC | 00CD | 00CE ² |
 | Razer Basilisk V3 Pro 35K Phantom Green Edition | 00D6 | 00D7 |  |
 | Razer Basilisk V3 X HyperSpeed ¹ |  | 00B9 |  |
 | Razer Basilisk V4 Pro | 00E2 | 00E3 |  |
-| Razer Basilisk X HyperSpeed ¹ |  | 0083 |  |
+| Razer Basilisk X HyperSpeed ¹ |  | 0083 | 0082 |
 | Razer Cobra HyperSpeed | 00DA | 00DB |  |
 | Razer Cobra Pro | 00AF | 00B0 |  |
 | Razer DeathAdder V2 Pro | 007C | 007D |  |
@@ -172,7 +175,7 @@ app shows it one time.
 | Razer Pro Click | 0080 | 0077 |  |
 | Razer Pro Click Mini |  | 009A |  |
 | Razer Pro Click V2 | 00D0 | 00D1 |  |
-| Razer Pro Click V2 Vertical Edition | 00C7 | 00C8 |  |
+| Razer Pro Click V2 Vertical Edition | 00C7 | 00C8 | 00C9 ² |
 | Razer Viper Mini SE | 009E | 009F |  |
 | Razer Viper Ultimate | 007A | 007B |  |
 | Razer Viper V2 Pro | 00A5 | 00A6 |  |
@@ -184,8 +187,11 @@ app shows it one time.
 ¹ This mouse does not report if it is charging. For this mouse, the app does not show the
 lightning bolt or the "fully charged" notification.
 
-The list comes from [openrazer](https://github.com/openrazer/openrazer). If your mouse is not in
-the list, see [Adding a mouse](CONTRIBUTING.md#adding-a-mouse).
+² On Bluetooth, this mouse uses the vendor ID 068E.
+
+The list comes from [openrazer](https://github.com/openrazer/openrazer). The Bluetooth IDs come
+from user reports. If your mouse is not in the list, see
+[Adding a mouse](CONTRIBUTING.md#adding-a-mouse).
 
 ## Questions
 
@@ -195,6 +201,16 @@ the list, see [Adding a mouse](CONTRIBUTING.md#adding-a-mouse).
 
 The mouse is asleep and does not answer. Move the mouse. The battery level comes back after a
 few seconds.
+
+</details>
+
+<details>
+<summary><b>The app shows "on Bluetooth" and no battery level.</b></summary>
+<br>
+
+The receiver is connected, but the mouse uses Bluetooth. The app cannot read the battery level
+over Bluetooth. See the level in Windows Settings > Bluetooth & devices, or switch the mouse to
+the receiver.
 
 </details>
 

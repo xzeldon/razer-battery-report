@@ -43,6 +43,8 @@ pub enum Command {
 enum State {
     Ok(Battery),
     Asleep,
+    /// The mouse did not answer, but the same model is connected over Bluetooth.
+    Bluetooth,
     Error(String),
 }
 
@@ -157,7 +159,10 @@ fn list_devices() -> anyhow::Result<Vec<Device>> {
 fn probe(device: &Device) -> State {
     match device.battery() {
         Ok(battery) => State::Ok(battery),
-        Err(Error::Timeout) => State::Asleep,
+        Err(Error::Timeout) => match device.on_bluetooth() {
+            true => State::Bluetooth,
+            false => State::Asleep,
+        },
         Err(error) => State::Error(error.to_string()),
     }
 }
@@ -166,6 +171,7 @@ fn state_text(state: &State) -> String {
     match state {
         State::Ok(battery) => battery_text(*battery),
         State::Asleep => "asleep".to_owned(),
+        State::Bluetooth => "on Bluetooth".to_owned(),
         State::Error(error) => format!("error: {error}"),
     }
 }
@@ -174,6 +180,7 @@ fn device_json<'a>((device, state): (&'a Device, &'a State)) -> DeviceJson<'a> {
     let (name, battery, error) = match state {
         State::Ok(battery) => ("ok", Some(battery), None),
         State::Asleep => ("asleep", None, None),
+        State::Bluetooth => ("bluetooth", None, None),
         State::Error(error) => ("error", None, Some(error.as_str())),
     };
     DeviceJson {

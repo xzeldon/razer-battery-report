@@ -21,6 +21,7 @@ struct Scanned {
     paths: Vec<String>,
     model: &'static str,
     serial: Option<String>,
+    bluetooth: bool,
     probe: Probe,
 }
 
@@ -93,6 +94,7 @@ fn scan(device: &Device, known: &[Reading], read_all: bool) -> Scanned {
         paths,
         model: device.model(),
         serial: serial.map(str::to_owned),
+        bluetooth: device.on_bluetooth(),
         probe,
     }
 }
@@ -171,6 +173,7 @@ fn merge(previous: &[Reading], scanned: Vec<Scanned>) -> Vec<Reading> {
                 serial: found.serial,
                 battery,
                 asleep,
+                bluetooth: asleep && found.bluetooth,
             }
         })
         .collect()
@@ -195,6 +198,7 @@ mod tests {
             serial: Some(key.to_owned()),
             battery: level.map(battery),
             asleep,
+            bluetooth: false,
         }
     }
 
@@ -204,6 +208,7 @@ mod tests {
             paths: Vec::new(),
             model: "Mouse",
             serial: Some(key.to_owned()),
+            bluetooth: false,
             probe,
         }
     }

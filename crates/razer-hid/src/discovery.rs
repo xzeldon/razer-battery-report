@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::catalog::{self, Entry};
+use crate::catalog::{self, Entry, Link, VENDOR_ID};
 use crate::device::{Battery, Endpoint};
 use crate::error::{Error, Result};
 use crate::transport::{Bus, Collection, Transport};
@@ -18,6 +18,7 @@ pub struct Device {
     serial: Option<String>,
     /// Never empty; sorted by link preference, wired first.
     endpoints: Vec<Endpoint>,
+    bluetooth: bool,
 }
 
 impl Device {
@@ -29,6 +30,12 @@ impl Device {
     /// The serial number the mouse reports over the protocol, if it has a readable one.
     pub fn serial(&self) -> Option<&str> {
         self.serial.as_deref()
+    }
+
+    /// Whether the same model is connected over Bluetooth right now. Matched by model name, not
+    /// serial, because the protocol does not answer over Bluetooth.
+    pub fn on_bluetooth(&self) -> bool {
+        self.bluetooth
     }
 
     /// Every endpoint of this mouse, most preferred first. Meant for diagnostics.
@@ -101,7 +108,9 @@ impl SerialCache {
 
 /// Lists the connected mice on `bus`, reading serials only for endpoints `cache` does not know.
 pub(crate) fn discover(bus: &dyn Bus, cache: &mut SerialCache) -> Result<Vec<Device>> {
-    let endpoints: Vec<Endpoint> = group_collections(bus.collections()?)
+    let collections = bus.collections()?;
+    let bluetooth_models = bluetooth_models(&collections);
+    let endpoints: Vec<Endpoint> = group_collections(collections)
         .into_iter()
         .filter_map(|(entry, candidates)| open_endpoint(bus, entry, &candidates))
         .collect();
@@ -127,21 +136,40 @@ pub(crate) fn discover(bus: &dyn Bus, cache: &mut SerialCache) -> Result<Vec<Dev
             Identity::Serial(serial) => Some(serial),
             Identity::Path(_) => None,
         };
-        devices.push(Device { serial, endpoints });
+        let bluetooth = bluetooth_models.contains(endpoints[0].entry().model_name());
+        devices.push(Device {
+            serial,
+            endpoints,
+            bluetooth,
+        });
     }
     Ok(devices)
 }
 
+/// The models that have a known Bluetooth collection on the bus.
+fn bluetooth_models(collections: &[Collection]) -> HashSet<&'static str> {
+    collections
+        .iter()
+        .filter(|collection| collection.bluetooth)
+        .filter_map(|collection| catalog::find_bluetooth(collection.vid, collection.pid))
+        .map(|bluetooth| bluetooth.model)
+        .collect()
+}
+
 /// Keeps the collections of catalog interfaces and groups them per interface. The mouse usage
-/// pair comes first in each group, because that collection answers on Windows.
+/// pair comes first in each group, because that collection answers on Windows. Bluetooth
+/// collections are dropped: the protocol does not answer over Bluetooth.
 fn group_collections(collections: Vec<Collection>) -> Vec<(&'static Entry, Vec<Collection>)> {
     let mut index: HashMap<(u16, String), usize> = HashMap::new();
     let mut groups: Vec<(&'static Entry, Vec<Collection>)> = Vec::new();
     for collection in collections {
+        if collection.bluetooth || collection.vid != VENDOR_ID {
+            continue;
+        }
         let Some(entry) = catalog::find(collection.pid) else {
             continue;
         };
-        if collection.interface != i32::from(entry.interface) {
+        if entry.link == Link::Bluetooth || collection.interface != i32::from(entry.interface) {
             continue;
         }
         let key = (collection.pid, interface_key(&collection.path));
@@ -207,7 +235,7 @@ fn interface_key(path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::Link;
+    use crate::catalog::BLUETOOTH_VENDOR_ID;
     use crate::transport::mock::{Behavior, MockBus};
 
     const WIRED: u16 = 0x00BE;
@@ -342,6 +370,52 @@ mod tests {
         let devices = discover(&bus, &mut cache).unwrap();
         assert_eq!(bus.serial_requests(), 2);
         assert_eq!(devices[0].serial(), Some("PM2"));
+    }
+
+    #[test]
+    fn bluetooth_collection_marks_the_device_and_is_never_opened() {
+        let mut bus = MockBus::default();
+        bus.add("dongle", DONGLE, MOUSE, with_serial("PM1"));
+        bus.add_on("bt", (BLUETOOTH_VENDOR_ID, 0x00CE), true);
+        // Another model's Bluetooth id does not mark this one.
+        bus.add_on("bt-other", (VENDOR_ID, 0x0095), true);
+        let devices = discover(&bus, &mut SerialCache::default()).unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].endpoints().len(), 1);
+        assert!(!devices[0].on_bluetooth());
+
+        let mut bus = MockBus::default();
+        bus.add("dongle", 0x00CD, MOUSE, with_serial("PM1"));
+        bus.add_on("bt", (BLUETOOTH_VENDOR_ID, 0x00CE), true);
+        let devices = discover(&bus, &mut SerialCache::default()).unwrap();
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].endpoints().len(), 1);
+        assert_eq!(devices[0].endpoints()[0].path(), "dongle");
+        assert!(devices[0].on_bluetooth());
+    }
+
+    #[test]
+    fn mouse_only_on_bluetooth_is_not_a_device() {
+        let mut bus = MockBus::default();
+        bus.add_on("bt", (BLUETOOTH_VENDOR_ID, 0x00CE), true);
+        bus.add_on("bt-razer", (VENDOR_ID, 0x0095), true);
+        assert!(
+            discover(&bus, &mut SerialCache::default())
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn usb_device_with_the_bluetooth_vendor_id_is_ignored() {
+        let mut bus = MockBus::default();
+        bus.add_on("usb", (BLUETOOTH_VENDOR_ID, 0x00CE), false);
+        assert!(
+            discover(&bus, &mut SerialCache::default())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(bus.serial_requests(), 0);
     }
 
     #[test]

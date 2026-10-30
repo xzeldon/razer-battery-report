@@ -1,8 +1,12 @@
 //! One [`Entry`] per USB product id: every battery mouse of openrazer (commit `477f4d6`) as
-//! printed by `scripts/list-openrazer-mice.py`. Only `link` is written by hand.
+//! printed by `scripts/list-openrazer-mice.py`. Only `link` is written by hand, and so is
+//! [`BLUETOOTH_IDS`].
 
 /// Razer's USB vendor id.
 pub const VENDOR_ID: u16 = 0x1532;
+
+/// The vendor id newer Razer mice report over Bluetooth instead of [`VENDOR_ID`].
+pub const BLUETOOTH_VENDOR_ID: u16 = 0x068E;
 
 /// Name suffixes that describe the connection rather than the model.
 const LINK_SUFFIXES: [&str; 5] = [
@@ -30,7 +34,8 @@ pub enum Link {
     Wired,
     /// The wireless dongle or receiver.
     Dongle,
-    /// Bluetooth.
+    /// Bluetooth. The protocol does not answer over Bluetooth, so endpoints of this link are
+    /// never opened.
     Bluetooth,
 }
 
@@ -67,10 +72,39 @@ impl Entry {
     }
 }
 
+/// A Bluetooth HID id of a mouse. The protocol does not answer over Bluetooth; the id only shows
+/// that the model is connected over Bluetooth right now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BluetoothId {
+    /// Vendor id the mouse reports over Bluetooth.
+    pub vid: u16,
+    /// Product id the mouse reports over Bluetooth.
+    pub pid: u16,
+    /// Model name as [`Entry::model_name`] spells it.
+    pub model: &'static str,
+}
+
 /// Finds the entry of a USB product id.
 pub fn find(pid: u16) -> Option<&'static Entry> {
     CATALOG.iter().find(|entry| entry.pid == pid)
 }
+
+/// Finds the Bluetooth id with the given vendor and product id.
+pub fn find_bluetooth(vid: u16, pid: u16) -> Option<&'static BluetoothId> {
+    BLUETOOTH_IDS
+        .iter()
+        .find(|bluetooth| bluetooth.vid == vid && bluetooth.pid == pid)
+}
+
+/// Bluetooth ids of known mice, written by hand; each line names its source. Every model
+/// is also a [`CATALOG`] model reachable by dongle or cable.
+#[rustfmt::skip]
+pub const BLUETOOTH_IDS: &[BluetoothId] = &[
+    BluetoothId { vid: VENDOR_ID, pid: 0x0082, model: "Razer Basilisk X HyperSpeed" }, // openrazer #1339
+    BluetoothId { vid: VENDOR_ID, pid: 0x0095, model: "Razer Orochi V2" }, // tested in issue #10
+    BluetoothId { vid: BLUETOOTH_VENDOR_ID, pid: 0x00C9, model: "Razer Pro Click V2 Vertical Edition" }, // openrazer #2653
+    BluetoothId { vid: BLUETOOTH_VENDOR_ID, pid: 0x00CE, model: "Razer Basilisk V3 Pro 35K" }, // openrazer #2407
+];
 
 /// Every supported product id, sorted by `pid`.
 #[rustfmt::skip]
@@ -186,6 +220,22 @@ mod tests {
             if entry.serial_tid.is_some() {
                 assert_eq!(entry.serial, Support::Query, "{}", entry.name);
             }
+        }
+    }
+
+    #[test]
+    fn bluetooth_ids_are_unique_and_name_a_catalog_model() {
+        let ids: HashSet<(u16, u16)> = BLUETOOTH_IDS.iter().map(|b| (b.vid, b.pid)).collect();
+        assert_eq!(ids.len(), BLUETOOTH_IDS.len());
+        for bluetooth in BLUETOOTH_IDS {
+            assert!(
+                CATALOG
+                    .iter()
+                    .any(|entry| entry.link != Link::Bluetooth
+                        && entry.model_name() == bluetooth.model),
+                "{}",
+                bluetooth.model
+            );
         }
     }
 

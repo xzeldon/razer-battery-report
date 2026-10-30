@@ -5,7 +5,7 @@ use std::fmt::{self, Debug};
 
 use hidapi::{HidApi, HidDevice};
 
-use crate::catalog::VENDOR_ID;
+use crate::catalog::{BLUETOOTH_VENDOR_ID, VENDOR_ID};
 use crate::error::{Error, Result};
 use crate::report::REPORT_LEN;
 
@@ -19,7 +19,9 @@ const WIRE_LEN: usize = REPORT_LEN + 1;
 pub struct Collection {
     /// OS path used to open the collection.
     pub path: String,
-    /// USB product id.
+    /// Vendor id.
+    pub vid: u16,
+    /// Product id.
     pub pid: u16,
     /// USB interface number, or -1 when the platform does not report it.
     pub interface: i32,
@@ -27,6 +29,8 @@ pub struct Collection {
     pub usage_page: u16,
     /// HID usage of the collection.
     pub usage: u16,
+    /// Whether the collection is reached over Bluetooth.
+    pub bluetooth: bool,
 }
 
 /// A channel that carries 90-byte reports to one HID collection and back.
@@ -68,13 +72,15 @@ impl Bus for HidBus<'_> {
         Ok(self
             .api
             .device_list()
-            .filter(|info| info.vendor_id() == VENDOR_ID)
+            .filter(|info| matches!(info.vendor_id(), VENDOR_ID | BLUETOOTH_VENDOR_ID))
             .map(|info| Collection {
                 path: info.path().to_string_lossy().into_owned(),
+                vid: info.vendor_id(),
                 pid: info.product_id(),
                 interface: info.interface_number(),
                 usage_page: info.usage_page(),
                 usage: info.usage(),
+                bluetooth: matches!(info.bus_type(), hidapi::BusType::Bluetooth),
             })
             .collect())
     }
@@ -123,7 +129,7 @@ pub(crate) mod mock {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex, PoisonError};
 
-    use super::{Bus, Collection, Transport};
+    use super::{Bus, Collection, Transport, VENDOR_ID};
     use crate::error::{Error, Result};
     use crate::report::{CRC_INDEX, Command, REPORT_LEN, Report, Status};
 
@@ -246,12 +252,32 @@ pub(crate) mod mock {
         pub fn add(&mut self, path: &str, pid: u16, usage: (u16, u16), behavior: Behavior) {
             let collection = Collection {
                 path: path.to_owned(),
+                vid: VENDOR_ID,
                 pid,
                 interface: 0,
                 usage_page: usage.0,
                 usage: usage.1,
+                bluetooth: false,
             };
             self.entries.push((collection, behavior));
+        }
+
+        /// Adds a collection with an explicit vendor id and bus; `open` fails the test for a
+        /// Bluetooth one.
+        pub fn add_on(&mut self, path: &str, (vid, pid): (u16, u16), bluetooth: bool) {
+            let collection = Collection {
+                path: path.to_owned(),
+                vid,
+                pid,
+                interface: match bluetooth {
+                    true => -1,
+                    false => 0,
+                },
+                usage_page: 0x0001,
+                usage: 0x0002,
+                bluetooth,
+            };
+            self.entries.push((collection, Behavior::default()));
         }
 
         /// Unplugs the collection with the given path.
@@ -287,6 +313,7 @@ pub(crate) mod mock {
         }
 
         fn open(&self, collection: &Collection) -> Result<Box<dyn Transport>> {
+            assert!(!collection.bluetooth, "a Bluetooth collection was opened");
             let (_, behavior) = self
                 .entries
                 .iter()

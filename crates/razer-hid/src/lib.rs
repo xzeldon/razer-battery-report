@@ -73,6 +73,7 @@ impl Hid {
         let state = &mut *guard;
         state.api.reset_devices()?;
         state.api.add_devices(catalog::VENDOR_ID, 0)?;
+        state.api.add_devices(catalog::BLUETOOTH_VENDOR_ID, 0)?;
         discovery::discover(&transport::HidBus::new(&state.api), &mut state.serials)
     }
 }

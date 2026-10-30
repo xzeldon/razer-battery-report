@@ -52,6 +52,9 @@ pub struct Reading {
     pub battery: Option<Battery>,
     /// Whether the last attempt to read the battery timed out.
     pub asleep: bool,
+    /// Whether the mouse did not answer because it is on Bluetooth; see
+    /// `razer_hid::Device::on_bluetooth`. Implies `asleep`.
+    pub bluetooth: bool,
 }
 
 /// How worrying a battery reading is. Shared by the notification rules and the tray icon colour.
@@ -192,6 +195,7 @@ mod tests {
             serial: Some(key.to_owned()),
             battery,
             asleep: false,
+            bluetooth: false,
         }
     }
 
