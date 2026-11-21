@@ -151,6 +151,9 @@ pub const CATALOG: &[Entry] = &[
     // Values from openrazer PR #2751, tested by @morphly on the cable and the dongle.
     Entry { pid: 0x00E5, name: "Razer Viper V4 Pro (Wired)", tid: 0x1F, interface: 3, wait_us: 59_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Wired },
     Entry { pid: 0x00E6, name: "Razer Viper V4 Pro (Wireless)", tid: 0x1F, interface: 3, wait_us: 59_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Dongle },
+    // Values from openrazer PR #2904, not tested on Windows yet.
+    Entry { pid: 0x00E7, name: "Razer Naga V3 Pro (Wired)", tid: 0x1F, interface: 0, wait_us: 31_000, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Wired },
+    Entry { pid: 0x00E8, name: "Razer Naga V3 Pro (Wireless)", tid: 0x1F, interface: 3, wait_us: 99_900, charging: Support::Query, serial: Support::Query, serial_tid: None, link: Link::Dongle },
 ];
 
 #[cfg(test)]

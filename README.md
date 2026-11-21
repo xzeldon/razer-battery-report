@@ -167,6 +167,7 @@ app shows it one time.
 | Razer Naga Pro | 008F | 0090 |  |
 | Razer Naga V2 HyperSpeed ¹ |  | 00B4 |  |
 | Razer Naga V2 Pro | 00A7 | 00A8 |  |
+| Razer Naga V3 Pro | 00E7 | 00E8 |  |
 | Razer Orochi V2 ¹ |  | 0094 | 0095 |
 | Razer Ouroboros | 0032 |  |  |
 | Razer Pro Click | 0080 | 0077 |  |
