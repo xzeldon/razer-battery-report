@@ -46,6 +46,7 @@ fn run(hid: &Hid, mut sink: impl FnMut(Vec<Reading>) -> bool) {
     let mut readings: Vec<Reading> = Vec::new();
     let mut last_sent: Option<Vec<Reading>> = None;
     let mut last_battery_read: Option<Instant> = None;
+    let mut last_links: Vec<Vec<String>> = Vec::new();
     loop {
         let read_all = last_battery_read.is_none_or(|at| at.elapsed() >= BATTERY_INTERVAL);
         let devices = {
@@ -54,10 +55,11 @@ fn run(hid: &Hid, mut sink: impl FnMut(Vec<Reading>) -> bool) {
         };
         match devices {
             Ok(devices) => {
-                let scanned = devices
+                let scanned: Vec<Scanned> = devices
                     .iter()
-                    .map(|device| scan(device, &readings, read_all))
+                    .map(|device| scan(device, &readings, &last_links, read_all))
                     .collect();
+                last_links = scanned.iter().map(|found| found.paths.clone()).collect();
                 readings = merge(&readings, scanned);
                 if read_all {
                     last_battery_read = Some(Instant::now());
@@ -75,8 +77,10 @@ fn run(hid: &Hid, mut sink: impl FnMut(Vec<Reading>) -> bool) {
     }
 }
 
-/// Describes `device`, reading its battery when [`needs_read`] says so.
-fn scan(device: &Device, known: &[Reading], read_all: bool) -> Scanned {
+/// Describes `device`, reading its battery when everything is due, when [`links_changed`] or
+/// when [`needs_read`] says so. `last_links` holds the endpoint paths of every mouse found by the
+/// previous scan.
+fn scan(device: &Device, known: &[Reading], last_links: &[Vec<String>], read_all: bool) -> Scanned {
     let key = DeviceKey::of(device);
     let paths: Vec<String> = device
         .endpoints()
@@ -84,7 +88,10 @@ fn scan(device: &Device, known: &[Reading], read_all: bool) -> Scanned {
         .map(|endpoint| endpoint.path().to_owned())
         .collect();
     let serial = device.serial();
-    let probe = match needs_read(find_previous(known, &key, serial, &paths), read_all) {
+    let read = read_all
+        || links_changed(last_links, &paths)
+        || needs_read(find_previous(known, &key, serial, &paths));
+    let probe = match read {
         true => read_battery(device),
         false => Probe::Skipped,
     };
@@ -97,10 +104,16 @@ fn scan(device: &Device, known: &[Reading], read_all: bool) -> Scanned {
     }
 }
 
-/// Whether to read a battery: for a mouse not seen before, one without a reading or asleep, or
-/// when everything is due.
-fn needs_read(known: Option<&Reading>, read_all: bool) -> bool {
-    read_all || known.is_none_or(|reading| reading.battery.is_none() || reading.asleep)
+/// Whether to read a battery outside the schedule: for a mouse not seen before, or one without a
+/// reading or asleep.
+fn needs_read(known: Option<&Reading>) -> bool {
+    known.is_none_or(|reading| reading.battery.is_none() || reading.asleep)
+}
+
+/// Whether the mouse with endpoint `paths` was reached in another way in the previous scan, for
+/// example a cable was plugged in. Plugging or unplugging the cable changes the charging state.
+fn links_changed(last_links: &[Vec<String>], paths: &[String]) -> bool {
+    !last_links.iter().any(|last| last == paths)
 }
 
 /// The previous reading of the mouse with `key`, `serial` and endpoint `paths`. A mouse that had
@@ -230,12 +243,20 @@ mod tests {
     }
 
     #[test]
-    fn needs_read_for_new_empty_or_sleeping_mice_and_when_due() {
-        assert!(needs_read(None, false));
-        assert!(needs_read(Some(&reading("a", None, false)), false));
-        assert!(needs_read(Some(&reading("a", Some(40), true)), false));
-        assert!(needs_read(Some(&reading("a", Some(40), false)), true));
-        assert!(!needs_read(Some(&reading("a", Some(40), false)), false));
+    fn needs_read_for_new_empty_or_sleeping_mice() {
+        assert!(needs_read(None));
+        assert!(needs_read(Some(&reading("a", None, false))));
+        assert!(needs_read(Some(&reading("a", Some(40), true))));
+        assert!(!needs_read(Some(&reading("a", Some(40), false))));
+    }
+
+    #[test]
+    fn plugging_or_unplugging_the_cable_changes_the_links() {
+        let dongle = vec!["dongle".to_owned()];
+        let both = vec!["cable".to_owned(), "dongle".to_owned()];
+        assert!(!links_changed(std::slice::from_ref(&dongle), &dongle));
+        assert!(links_changed(std::slice::from_ref(&dongle), &both));
+        assert!(links_changed(std::slice::from_ref(&both), &dongle));
     }
 
     #[test]
